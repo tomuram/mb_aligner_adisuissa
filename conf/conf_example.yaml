@@ -1,4 +1,5 @@
 stitching:
+    detector_threads: 8
     #detector_type: SIFT
     #detector_params:
     #    sigma: 1.8
@@ -12,6 +13,7 @@ stitching:
     #descriptor:
     #    type: SIFT
 
+    matcher_threads: 8
     matcher_params:
         ROD_cutoff: 0.9
         model_index: 1 # 0 - Translation, 1 - Rigid, 3 - Affine
