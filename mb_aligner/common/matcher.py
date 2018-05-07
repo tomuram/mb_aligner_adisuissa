@@ -4,8 +4,8 @@ from rh_renderer import models
 
 class FeaturesMatcher(object):
 
-    def __init__(self, detector, **kwargs):
-        self._detector = detector
+    def __init__(self, matcher_init_fn, **kwargs):
+        self._matcher = matcher_init_fn()
 
         self._params = {}
         # get default values if no value is present in kwargs
@@ -30,7 +30,7 @@ class FeaturesMatcher(object):
 
 
     def match(self, features_kps1, features_descs1, features_kps2, features_descs2):
-        matches = self._detector.match(features_descs1, features_descs2)
+        matches = self._matcher.knnMatch(features_descs1, features_descs2, k=2)
 
         good_matches = []
         for m, n in matches:
@@ -38,11 +38,17 @@ class FeaturesMatcher(object):
             if m.distance < self._params["ROD_cutoff"] * n.distance:
                 good_matches.append(m)
 
+#         match_points = (
+#             np.array([features_kps1[m.queryIdx].pt for m in good_matches]),
+#             np.array([features_kps2[m.trainIdx].pt for m in good_matches]),
+#             np.array([m.distance for m in good_matches])
+#         )
         match_points = (
-            np.array([features_kps1[m.queryIdx].pt for m in good_matches]),
-            np.array([features_kps2[m.trainIdx].pt for m in good_matches]),
+            features_kps1[[m.queryIdx for m in good_matches]],
+            features_kps2[[m.trainIdx for m in good_matches]],
             np.array([m.distance for m in good_matches])
         )
+
 
         return match_points
 
