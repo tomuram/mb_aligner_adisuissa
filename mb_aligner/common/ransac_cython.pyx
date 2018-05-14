@@ -2,14 +2,15 @@ import  numpy as np
 cimport numpy as np
 import cython
 from libc.stdlib cimport rand, RAND_MAX
+from libc.limits cimport INT_MAX
 from libc.math cimport sqrt, floor, cos, sin, asin, INFINITY, fabs
 from libc.stdlib cimport malloc, free
 from libc.stdio cimport printf
 from libcpp.set cimport set as cpp_set
 from cython.operator cimport dereference as deref
 
-# cython: profile=True
-# cython: linetrace=True
+## cython: profile=True
+## cython: linetrace=True
 
 # def dice6_cy3(int N, int ndice, int nsix):
 #     cdef int M = 0            # no of successful events
@@ -35,17 +36,17 @@ cdef enum RansacResultType:
     RANSAC_NOT_ENOUGH_POINTS = -1,
     RANSAC_NO_GOOD_MODEL_FOUND = -2
 
-cdef inline void index1d_to_index2d(int n, int idx_1d, int *out_row, int *out_col) nogil:
+cdef inline void index1d_to_index2d(size_t n, size_t idx_1d, size_t *out_row, size_t *out_col) nogil:
     """
     Converts a number idx in the range [0, n*(n-1)/2) to a tuple:
     (row, col) of an upper triangular matrix of shape (n*n)
     """
-    out_row[0] = n - 2 - <int>(floor(sqrt(-8 * idx_1d + 4 * n * (n - 1) - 7)/2.0 - 0.5))
-    out_col[0] = idx_1d + 1 + <int>(0.5*out_row[0]*out_row[0] - 0.5*(2*n - 3)*out_row[0])
+    out_row[0] = n - 2 - <size_t>(floor(sqrt(-8 * idx_1d + 4 * n * (n - 1) - 7)/2.0 - 0.5))
+    out_col[0] = idx_1d + 1 + <size_t>(0.5*out_row[0]*out_row[0] - 0.5*(2*n - 3)*out_row[0])
 
-cdef inline void fit_rigid(float p1_x, float p1_y, float q1_x, float q1_y,
+cdef inline int fit_rigid(float p1_x, float p1_y, float q1_x, float q1_y,
                     float p2_x, float p2_y, float q2_x, float q2_y,
-                    int *res, float *angle, float *t_x, float *t_y) nogil:
+                    float *angle, float *t_x, float *t_y) nogil:
     """
     Given 2 matches of points (p1 -> q1, p2 -> q2), returns a tuple:
     (ret_status, angle, t_x, t_y)
@@ -58,15 +59,14 @@ cdef inline void fit_rigid(float p1_x, float p1_y, float q1_x, float q1_y,
     dy_p = p1_y - p2_y
     if fabs(dx_p) <= EPS or fabs(dy_p) <= EPS:
         #return 0, 0, 0, 0
-        res[0] = 0
-        return
+        return 0
 
-    res[0] = 1
     sin_angle = ((q1_y - q2_y) * dx_p - (q1_x - q2_x) * dy_p) / (dx_p*dx_p + dy_p*dy_p)
     angle[0] = asin(sin_angle)
     cos_angle = cos(angle[0])
     t_x[0] = q1_x - p1_x * cos_angle + p1_y * sin_angle
     t_y[0] = q1_y - p1_x * sin_angle - p1_y * cos_angle
+    return 1
 
 cdef inline float compute_rigid_model_score(
                     np.float32_t* X_T,
@@ -159,10 +159,10 @@ cdef void get_rigid_model_inliers(
         else:
             out_inliers[p_idx] = 0
 
-cdef void random_choice_no_repeat(
-            int n,
-            int c,
-            np.ndarray[np.int_t, ndim=1, mode='c'] out_choices
+cdef inline void random_choice_no_repeat(
+            size_t n,
+            size_t c,
+            np.ndarray[np.int32_t, ndim=1, mode='c'] out_choices
             ):
     """
     Chooses c numbers out of the set [0, n), without repetitions
@@ -170,7 +170,7 @@ cdef void random_choice_no_repeat(
     cdef int insert_counter = 0
     cdef cpp_set[int] chosen_set
     cdef int rand_num
-    cdef np.int_t* out_choices_arr = &out_choices[0]
+    cdef np.int32_t* out_choices_arr = &out_choices[0]
 
     if c >= n/2:
         # If we need to choose many numbers, just use numpy's random
@@ -193,8 +193,8 @@ cdef void random_choice_no_repeat(
 
 
 ##@cython.profile(True)
-@cython.binding(True)
-@cython.linetrace(True)
+##@cython.binding(True)
+##@cython.linetrace(True)
 @cython.boundscheck(False)  # turn off array bounds check
 @cython.wraparound(False)   # turn off negative indices ([-1,-1])
 def ransac_rigid(
@@ -221,17 +221,19 @@ def ransac_rigid(
     cdef int len_test_matches0 = len(test_matches_T[0, 0])
     # Avoiding repeated indices permutations using a dictionary
     # Limit the number of possible matches that we can search for using n choose k
-    cdef int max_combinations = int(len_sample_matches0 * (len_sample_matches0 - 1) / 2) # N choose 2
+    cdef long max_combinations_real = long(long(len_sample_matches0) * (len_sample_matches0 - 1) / 2) # N choose 2
+    cdef int max_combinations = int(min(max_combinations_real, INT_MAX - 1))
     cdef int max_iterations = min(iterations, max_combinations)
-    cdef int idx_1d, pq1_idx, pq2_idx
+    cdef size_t idx_1d, pq1_idx, pq2_idx
     cdef int fit_res
     cdef float model_angle, model_t_x, model_t_y
     cdef float proposed_model_score
     # choose max_iterations different pairs of matches to create the transformation
     # Note that we'll randomly choose a number between 0 to max_combinations-1, and then convert it
     # to a single pair of matches (see: https://stackoverflow.com/questions/27086195/linear-index-upper-triangular-matrix)
-    cdef np.ndarray[np.int_t, ndim=1, mode='c'] choices_1d_idxs = \
-            np.empty(max_iterations, dtype=int)
+    #printf("max_combs: %d, max_iterations: %d\n", max_combinations, max_iterations)
+    cdef np.ndarray[np.int32_t, ndim=1, mode='c'] choices_1d_idxs = \
+            np.empty(max_iterations, dtype=np.int32)
             #np.random.choice(max_combinations, max_iterations, False)
     cdef np.float32_t *sample_matches_T0 = &sample_matches_T[0, 0, 0]
     cdef np.float32_t *sample_matches_T1 = &sample_matches_T[1, 0, 0]
@@ -241,16 +243,15 @@ def ransac_rigid(
     random_choice_no_repeat(max_combinations, max_iterations, choices_1d_idxs)
 
     # with nogil:
-    printf("max_combs: %d, max_iterations: %d\n", max_combinations, max_iterations)
     for i in range(max_iterations):
         idx_1d = choices_1d_idxs[i]
         index1d_to_index2d(len_sample_matches0, idx_1d, &pq1_idx, &pq2_idx)
-        fit_rigid(
+        fit_res = fit_rigid(
             #sample_matches0[2 * pq1_idx], sample_matches0[2 * pq1_idx + 1], sample_matches1[2 * pq1_idx], sample_matches1[2 * pq1_idx + 1], # p1_x, p1_y, q1_x, q1_y
             #sample_matches0[2 * pq2_idx], sample_matches0[2 * pq2_idx + 1], sample_matches1[2 * pq2_idx], sample_matches1[2 * pq2_idx + 1], # p2_x, p2_y, q2_x, q2_y
             sample_matches_T0[pq1_idx], sample_matches_T0[pq1_idx + len_sample_matches0], sample_matches_T1[pq1_idx], sample_matches_T1[pq1_idx + len_sample_matches0], # p1_x, p1_y, q1_x, q1_y
             sample_matches_T0[pq2_idx], sample_matches_T0[pq2_idx + len_sample_matches0], sample_matches_T1[pq2_idx], sample_matches_T1[pq2_idx + len_sample_matches0], # p2_x, p2_y, q2_x, q2_y
-            &fit_res, &model_angle, &model_t_x, &model_t_y
+            &model_angle, &model_t_x, &model_t_y
             )
         if fit_res == 0:
             continue

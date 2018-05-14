@@ -2,8 +2,8 @@ import numpy as np
 import time
 import ransac as orig_ransac
 
-import pstats, cProfile
-import line_profiler
+#import pstats, cProfile
+#import line_profiler
 
 
 import pyximport
@@ -94,6 +94,7 @@ def test2():
     min_inlier_ratio = 0.05
     min_num_inlier = 0.1 * N
     max_rot_deg = 0.1
+    st_time = time.time()
 #     out = ransac_cython.ransac(
 #             [pts1, pts2], [pts1, pts2],
 #             iterations,
@@ -113,9 +114,10 @@ def test2():
             min_num_inlier,
             max_rot_deg
         )
+    end_time = time.time()
 
 
-    print("Output is: {}".format(out))
+    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
 
 
 def test3():
@@ -147,6 +149,7 @@ def test3():
     min_inlier_ratio = 0.05
     min_num_inlier = 0.1 * N
     max_rot_deg = 0.1
+    st_time = time.time()
 #     out = ransac_cython.ransac(
 #             [pts1, pts2], [pts1, pts2],
 #             iterations,
@@ -166,9 +169,10 @@ def test3():
             min_num_inlier,
             max_rot_deg
         )
+    end_time = time.time()
 
 
-    print("Output is: {}".format(out))
+    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
 
 
 def test4():
@@ -197,6 +201,7 @@ def test4():
     min_inlier_ratio = 0.05
     min_num_inlier = 0.1 * N
     max_rot_deg = 0.1
+    st_time = time.time()
 #     out = ransac_cython.ransac(
 #             [pts1, pts2], [pts1, pts2],
 #             iterations,
@@ -216,15 +221,16 @@ def test4():
             min_num_inlier,
             max_rot_deg
         )
+    end_time = time.time()
 
 
-    print("Output is: {}".format(out))
+    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
 
 
 
 def test5():
     print("**** Testing normal distribution with 50000 points:")
-    N = 15000
+    N = 50000
     min_val = -2000
     max_val = 3000
     np.random.seed(7)
@@ -255,14 +261,15 @@ def test5():
 
     out = None
     st_time = time.time()
-    func = ransac_cython.ransac_rigid
-    profile = line_profiler.LineProfiler(func)
-    profile.runcall(func, np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
-             iterations,
-             epsilon,
-             min_inlier_ratio,
-             min_num_inlier,
-             max_rot_deg)
+
+#     func = ransac_cython.ransac_rigid
+#     profile = line_profiler.LineProfiler(func)
+#     profile.runcall(func, np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+#              iterations,
+#              epsilon,
+#              min_inlier_ratio,
+#              min_num_inlier,
+#              max_rot_deg)
 
 #     cProfile.runctx("ransac_cython.ransac_rigid(\
 #         np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),\
@@ -273,20 +280,20 @@ def test5():
 #         max_rot_deg\
 #         )", globals(), locals(), "Profile.prof")
 
-#     out = ransac_cython.ransac_rigid(
-#             np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
-#             iterations,
-#             epsilon,
-#             min_inlier_ratio,
-#             min_num_inlier,
-#             max_rot_deg
-#         )
+    out = ransac_cython.ransac_rigid(
+            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            iterations,
+            epsilon,
+            min_inlier_ratio,
+            min_num_inlier,
+            max_rot_deg
+        )
     end_time = time.time()
 
 
     print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
 
-    assert_stats(profile, func.__name__)
+#     assert_stats(profile, func.__name__)
 
 #     s = pstats.Stats("Profile.prof")
 #     s.strip_dirs().sort_stats("time").print_stats()
@@ -321,9 +328,9 @@ def assert_stats(profile, name):
         raise ValueError("No stats for %s." % name)
 
 if __name__ == '__main__':
-    #test1()
-    #test2()
-    #test3()
-    #test4()
+    test1()
+    test2()
+    test3()
+    test4()
     test5()
 
