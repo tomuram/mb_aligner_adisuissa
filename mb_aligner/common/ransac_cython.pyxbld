@@ -24,7 +24,8 @@ def make_ext(modname, pyxfilename):
                      language="c++",
                      #include_dirs=include_dirs_list,
                      include_dirs=[numpy.get_include()],
-                     extra_compile_args=['-O3', '--verbose']
+                     define_macros=[('CYTHON_TRACE', '1'), ('CYTHON_TRACE_NOGIL', '1')],
+                     extra_compile_args=['-O3', '--verbose', '-mavx2', '-fopt-info-vec-all']
                      #extra_objects=libraries_list
                     )
 

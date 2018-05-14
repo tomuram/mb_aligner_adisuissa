@@ -3,7 +3,13 @@ cimport numpy as np
 import cython
 from libc.stdlib cimport rand, RAND_MAX
 from libc.math cimport sqrt, floor, cos, sin, asin, INFINITY, fabs
+from libc.stdlib cimport malloc, free
 from libc.stdio cimport printf
+from libcpp.set cimport set as cpp_set
+from cython.operator cimport dereference as deref
+
+# cython: profile=True
+# cython: linetrace=True
 
 # def dice6_cy3(int N, int ndice, int nsix):
 #     cdef int M = 0            # no of successful events
@@ -29,7 +35,7 @@ cdef enum RansacResultType:
     RANSAC_NOT_ENOUGH_POINTS = -1,
     RANSAC_NO_GOOD_MODEL_FOUND = -2
 
-cdef void index1d_to_index2d(int n, int idx_1d, int *out_row, int *out_col) nogil:
+cdef inline void index1d_to_index2d(int n, int idx_1d, int *out_row, int *out_col) nogil:
     """
     Converts a number idx in the range [0, n*(n-1)/2) to a tuple:
     (row, col) of an upper triangular matrix of shape (n*n)
@@ -37,7 +43,7 @@ cdef void index1d_to_index2d(int n, int idx_1d, int *out_row, int *out_col) nogi
     out_row[0] = n - 2 - <int>(floor(sqrt(-8 * idx_1d + 4 * n * (n - 1) - 7)/2.0 - 0.5))
     out_col[0] = idx_1d + 1 + <int>(0.5*out_row[0]*out_row[0] - 0.5*(2*n - 3)*out_row[0])
 
-cdef void fit_rigid(float p1_x, float p1_y, float q1_x, float q1_y,
+cdef inline void fit_rigid(float p1_x, float p1_y, float q1_x, float q1_y,
                     float p2_x, float p2_y, float q2_x, float q2_y,
                     int *res, float *angle, float *t_x, float *t_y) nogil:
     """
@@ -62,44 +68,56 @@ cdef void fit_rigid(float p1_x, float p1_y, float q1_x, float q1_y,
     t_x[0] = q1_x - p1_x * cos_angle + p1_y * sin_angle
     t_y[0] = q1_y - p1_x * sin_angle - p1_y * cos_angle
 
-cdef float compute_rigid_model_score(
-                    np.float32_t* X,
-                    np.float32_t* y,
-                    int matches_num,
+cdef inline float compute_rigid_model_score(
+                    np.float32_t* X_T,
+                    np.float32_t* y_T,
+                    size_t matches_num,
                     #np.ndarray[np.float32_t, ndim=2, mode='c'] X,
                     #np.ndarray[np.float32_t, ndim=2, mode='c'] y,
                     float angle, float t_x, float t_y,
                     float epsilon,
                     float min_inlier_ratio,
-                    float min_num_inlier
+                    float min_num_inlier,
+                    np.float32_t *dists2_temp
             ) nogil:
     """
     Applies the rigid transformation for points in X and computes the L2 distance to the points in Y.
     Accepts as inlier each match that has distance at most epsilon.
     """
     cdef int inliers_num = 0
-    cdef int p_idx
+    cdef size_t p_idx
     cdef float new_x, d_x, new_y, d_y, dist2, cos_angle, sin_angle
     cdef float epsilon2 = epsilon * epsilon # epsilon^2, to avoid sqrt later on
-    cdef int x_idx, y_idx
+    cdef size_t x_idx, y_idx
     #cdef np.ndarray[np.float32_t, ndim=2, mode='c'] X2 = np.empty_like(X)
+    #cdef np.float32_t* new_xs = <float *>malloc(matches_num * sizeof(np.float32_t))
+    #cdef np.float32_t* new_ys = <float *>malloc(matches_num * sizeof(np.float32_t))
+    #cdef np.float32_t* dists2 = <float *>malloc(matches_num * sizeof(np.float32_t))
 
     # compute the transformed X
     cos_angle = cos(angle)
     sin_angle = sin(angle)
     # Transform each point in X, and compute the L2 distance 
     for p_idx in range(matches_num):
-        x_idx = 2 * p_idx
-        y_idx = x_idx + 1
-        new_x = X[x_idx] * cos_angle - X[y_idx] * sin_angle + t_x
-        d_x = new_x - y[x_idx]
-        new_y = X[x_idx] * sin_angle + X[y_idx] * cos_angle + t_y
-        d_y = new_y - y[y_idx]
+        #x_idx = 2 * p_idx
+        #y_idx = x_idx + 1
+        x_idx = p_idx
+        y_idx = p_idx + matches_num
+        new_x = X_T[x_idx] * cos_angle - X_T[y_idx] * sin_angle + t_x
+        new_y = X_T[x_idx] * sin_angle + X_T[y_idx] * cos_angle + t_y
 
-        dist2 = d_x*d_x + d_y*d_y
-        if dist2 < epsilon2:
+        d_x = new_x - y_T[x_idx]
+        d_y = new_y - y_T[y_idx]
+
+        dists2_temp[p_idx] = d_x*d_x + d_y*d_y
+
+    for p_idx in range(matches_num):
+        if dists2_temp[p_idx] < epsilon2:
             inliers_num += 1
 
+    #free(new_ys)
+    #free(new_xs)
+    #free(dists2)
     cdef float accepted_ratio = float(inliers_num) / matches_num
     if inliers_num < min_num_inlier or accepted_ratio < min_inlier_ratio:
         return -1
@@ -141,12 +159,47 @@ cdef void get_rigid_model_inliers(
         else:
             out_inliers[p_idx] = 0
 
+cdef void random_choice_no_repeat(
+            int n,
+            int c,
+            np.ndarray[np.int_t, ndim=1, mode='c'] out_choices
+            ):
+    """
+    Chooses c numbers out of the set [0, n), without repetitions
+    """
+    cdef int insert_counter = 0
+    cdef cpp_set[int] chosen_set
+    cdef int rand_num
+    cdef np.int_t* out_choices_arr = &out_choices[0]
 
+    if c >= n/2:
+        # If we need to choose many numbers, just use numpy's random
+        out_choices[:] = np.random.choice(n, c, False)
+    else:
+        # try a faster pseudo random way to generate the numbers
+        # TODO - try to find a better method for no repetition is w.h.p, but that might not be guaranteed (similar to linear feedback shift register)
+
+        with nogil:
+            while insert_counter < c:            
+                # draw a random number and make sure it wasn't used
+                rand_num = rand() % n
+                while chosen_set.find(rand_num) != chosen_set.end():
+                    rand_num = int(n * rand() / RAND_MAX)
+
+                out_choices_arr[insert_counter] = rand_num
+                chosen_set.insert(rand_num)
+                insert_counter += 1
+
+
+
+##@cython.profile(True)
+@cython.binding(True)
+@cython.linetrace(True)
 @cython.boundscheck(False)  # turn off array bounds check
 @cython.wraparound(False)   # turn off negative indices ([-1,-1])
 def ransac_rigid(
-            np.ndarray[np.float32_t, ndim=3, mode='c'] sample_matches,
-            np.ndarray[np.float32_t, ndim=3, mode='c'] test_matches,
+            np.ndarray[np.float32_t, ndim=3, mode='c'] sample_matches_T,
+            np.ndarray[np.float32_t, ndim=3, mode='c'] test_matches_T,
             int iterations,
             float epsilon,
             float min_inlier_ratio,
@@ -156,16 +209,16 @@ def ransac_rigid(
     """
     Ransac optimized for 2d rigid transformations only
     """
-    printf("len(sample_matches[0]): %d\n", len(sample_matches[0]))
-    if len(sample_matches[0]) < MinMatchesNumRigid:
+    printf("len(sample_matches[0]): %d\n", len(sample_matches_T[0, 0]))
+    if len(sample_matches_T[0, 0]) < MinMatchesNumRigid:
         return RANSAC_NOT_ENOUGH_POINTS, None, None, None
 
     cdef float best_model_score = 0
     cdef float best_model_angle
     cdef float best_model_t_x
     cdef float best_model_t_y
-    cdef int len_sample_matches0 = len(sample_matches[0])
-    cdef int len_test_matches0 = len(test_matches[0])
+    cdef int len_sample_matches0 = len(sample_matches_T[0, 0])
+    cdef int len_test_matches0 = len(test_matches_T[0, 0])
     # Avoiding repeated indices permutations using a dictionary
     # Limit the number of possible matches that we can search for using n choose k
     cdef int max_combinations = int(len_sample_matches0 * (len_sample_matches0 - 1) / 2) # N choose 2
@@ -178,34 +231,41 @@ def ransac_rigid(
     # Note that we'll randomly choose a number between 0 to max_combinations-1, and then convert it
     # to a single pair of matches (see: https://stackoverflow.com/questions/27086195/linear-index-upper-triangular-matrix)
     cdef np.ndarray[np.int_t, ndim=1, mode='c'] choices_1d_idxs = \
-            np.random.choice(max_combinations, max_iterations, False)
-    cdef np.float32_t *sample_matches0 = &sample_matches[0, 0, 0]
-    cdef np.float32_t *sample_matches1 = &sample_matches[1, 0, 0]
+            np.empty(max_iterations, dtype=int)
+            #np.random.choice(max_combinations, max_iterations, False)
+    cdef np.float32_t *sample_matches_T0 = &sample_matches_T[0, 0, 0]
+    cdef np.float32_t *sample_matches_T1 = &sample_matches_T[1, 0, 0]
+    cdef np.float32_t* dists2_temp = <float *>malloc(len_test_matches0 * sizeof(np.float32_t))
 
-    with nogil:
-        printf("max_combs: %d, max_iterations: %d\n", max_combinations, max_iterations)
-        for i in range(max_iterations):
-            idx_1d = choices_1d_idxs[i]
-            index1d_to_index2d(len_sample_matches0, idx_1d, &pq1_idx, &pq2_idx)
-            fit_rigid(
-                sample_matches0[2 * pq1_idx], sample_matches0[2 * pq1_idx + 1], sample_matches1[2 * pq1_idx], sample_matches1[2 * pq1_idx + 1], # p1_x, p1_y, q1_x, q1_y
-                sample_matches0[2 * pq2_idx], sample_matches0[2 * pq2_idx + 1], sample_matches1[2 * pq2_idx], sample_matches1[2 * pq2_idx + 1], # p2_x, p2_y, q2_x, q2_y
-                #sample_matches[0][pq1_idx][0], sample_matches[0][pq1_idx][1], sample_matches[1][pq1_idx][0], sample_matches[1][pq1_idx][1], # p1_x, p1_y, q1_x, q1_y
-                #sample_matches[0][pq2_idx][0], sample_matches[0][pq2_idx][1], sample_matches[1][pq2_idx][0], sample_matches[1][pq2_idx][1], # p2_x, p2_y, q2_x, q2_y
-                &fit_res, &model_angle, &model_t_x, &model_t_y
-                )
-            if fit_res == 0:
-                continue
 
-            # compute the model's score (on the test_matches)
-            proposed_model_score = compute_rigid_model_score(&test_matches[0, 0, 0], &test_matches[1, 0, 0], len_test_matches0,
-                model_angle, model_t_x, model_t_y, epsilon, min_inlier_ratio, min_num_inlier)
+    random_choice_no_repeat(max_combinations, max_iterations, choices_1d_idxs)
 
-            if proposed_model_score > best_model_score:
-                best_model_score = proposed_model_score
-                best_model_angle = model_angle
-                best_model_t_x = model_t_x
-                best_model_t_y = model_t_y
+    # with nogil:
+    printf("max_combs: %d, max_iterations: %d\n", max_combinations, max_iterations)
+    for i in range(max_iterations):
+        idx_1d = choices_1d_idxs[i]
+        index1d_to_index2d(len_sample_matches0, idx_1d, &pq1_idx, &pq2_idx)
+        fit_rigid(
+            #sample_matches0[2 * pq1_idx], sample_matches0[2 * pq1_idx + 1], sample_matches1[2 * pq1_idx], sample_matches1[2 * pq1_idx + 1], # p1_x, p1_y, q1_x, q1_y
+            #sample_matches0[2 * pq2_idx], sample_matches0[2 * pq2_idx + 1], sample_matches1[2 * pq2_idx], sample_matches1[2 * pq2_idx + 1], # p2_x, p2_y, q2_x, q2_y
+            sample_matches_T0[pq1_idx], sample_matches_T0[pq1_idx + len_sample_matches0], sample_matches_T1[pq1_idx], sample_matches_T1[pq1_idx + len_sample_matches0], # p1_x, p1_y, q1_x, q1_y
+            sample_matches_T0[pq2_idx], sample_matches_T0[pq2_idx + len_sample_matches0], sample_matches_T1[pq2_idx], sample_matches_T1[pq2_idx + len_sample_matches0], # p2_x, p2_y, q2_x, q2_y
+            &fit_res, &model_angle, &model_t_x, &model_t_y
+            )
+        if fit_res == 0:
+            continue
+
+        # compute the model's score (on the test_matches)
+        proposed_model_score = compute_rigid_model_score(&test_matches_T[0, 0, 0], &test_matches_T[1, 0, 0], len_test_matches0,
+            model_angle, model_t_x, model_t_y, epsilon, min_inlier_ratio, min_num_inlier, dists2_temp)
+
+        if proposed_model_score > best_model_score:
+            best_model_score = proposed_model_score
+            best_model_angle = model_angle
+            best_model_t_x = model_t_x
+            best_model_t_y = model_t_y
+
+    free(dists2_temp)
 
     if best_model_score == 0:
         # No good model found

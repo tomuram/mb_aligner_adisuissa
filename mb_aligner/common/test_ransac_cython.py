@@ -2,6 +2,10 @@ import numpy as np
 import time
 import ransac as orig_ransac
 
+import pstats, cProfile
+import line_profiler
+
+
 import pyximport
 pyximport.install()
 import ransac_cython
@@ -48,7 +52,7 @@ def test1():
 #         )
     st_time = time.time()
     out = ransac_cython.ransac_rigid(
-            np.array([pts1, pts2]), np.array([pts1, pts2]),
+            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -102,7 +106,7 @@ def test2():
 #             0, # tri_angles_comparator
 #         )
     out = ransac_cython.ransac_rigid(
-            np.array([pts1, pts2]), np.array([pts1, pts2]),
+            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -155,7 +159,7 @@ def test3():
 #             0, # tri_angles_comparator
 #         )
     out = ransac_cython.ransac_rigid(
-            np.array([pts1, pts2]), np.array([pts1, pts2]),
+            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -205,7 +209,7 @@ def test4():
 #             0, # tri_angles_comparator
 #         )
     out = ransac_cython.ransac_rigid(
-            np.array([pts1, pts2]), np.array([pts1, pts2]),
+            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -247,30 +251,46 @@ def test5():
     min_inlier_ratio = 0.05
     min_num_inlier = 0.1 * N
     max_rot_deg = 0.1
-#     out = ransac_cython.ransac(
-#             [pts1, pts2], [pts1, pts2],
+
+
+    out = None
+    st_time = time.time()
+    func = ransac_cython.ransac_rigid
+    profile = line_profiler.LineProfiler(func)
+    profile.runcall(func, np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+             iterations,
+             epsilon,
+             min_inlier_ratio,
+             min_num_inlier,
+             max_rot_deg)
+
+#     cProfile.runctx("ransac_cython.ransac_rigid(\
+#         np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),\
+#         iterations,\
+#         epsilon,\
+#         min_inlier_ratio,\
+#         min_num_inlier,\
+#         max_rot_deg\
+#         )", globals(), locals(), "Profile.prof")
+
+#     out = ransac_cython.ransac_rigid(
+#             np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
 #             iterations,
 #             epsilon,
 #             min_inlier_ratio,
 #             min_num_inlier,
-#             0, # det_delta
-#             0, # max_stretch
-#             max_rot_deg,
-#             0, # tri_angles_comparator
+#             max_rot_deg
 #         )
-    st_time = time.time()
-    out = ransac_cython.ransac_rigid(
-            np.array([pts1, pts2]), np.array([pts1, pts2]),
-            iterations,
-            epsilon,
-            min_inlier_ratio,
-            min_num_inlier,
-            max_rot_deg
-        )
     end_time = time.time()
 
 
     print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
+
+    assert_stats(profile, func.__name__)
+
+#     s = pstats.Stats("Profile.prof")
+#     s.strip_dirs().sort_stats("time").print_stats()
+
     print("Running original ransac")
     target_model_type = 1
     st_time = time.time()
@@ -289,11 +309,21 @@ def test5():
     print("Output (original ransac) is: {}, time: {} seconds".format(out[1].to_str(), end_time - st_time))
 
 
+def assert_stats(profile, name):
+    profile.print_stats()
+    stats = profile.get_stats()
+    assert len(stats.timings) > 0, "No profile stats."
+    for key, timings in stats.timings.items():
+        if key[-1] == name:
+            assert len(timings) > 0
+            break
+    else:
+        raise ValueError("No stats for %s." % name)
 
 if __name__ == '__main__':
-    test1()
-    test2()
-    test3()
-    test4()
+    #test1()
+    #test2()
+    #test3()
+    #test4()
     test5()
 
