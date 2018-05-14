@@ -52,7 +52,8 @@ def test1():
 #         )
     st_time = time.time()
     out = ransac_cython.ransac_rigid(
-            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            [pts1, pts2], [pts1, pts2],
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -107,7 +108,8 @@ def test2():
 #             0, # tri_angles_comparator
 #         )
     out = ransac_cython.ransac_rigid(
-            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            [pts1, pts2], [pts1, pts2],
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -162,7 +164,8 @@ def test3():
 #             0, # tri_angles_comparator
 #         )
     out = ransac_cython.ransac_rigid(
-            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            [pts1, pts2], [pts1, pts2],
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -214,7 +217,8 @@ def test4():
 #             0, # tri_angles_comparator
 #         )
     out = ransac_cython.ransac_rigid(
-            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            [pts1, pts2], [pts1, pts2],
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -281,7 +285,8 @@ def test5():
 #         )", globals(), locals(), "Profile.prof")
 
     out = ransac_cython.ransac_rigid(
-            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            [pts1, pts2], [pts1, pts2],
             iterations,
             epsilon,
             min_inlier_ratio,
@@ -369,7 +374,8 @@ def test6():
 #         )", globals(), locals(), "Profile.prof")
 
     out = ransac_cython.ransac_rigid(
-            np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+            [pts1, pts2], [pts1, pts2],
             iterations,
             epsilon,
             min_inlier_ratio,

@@ -12,22 +12,6 @@ from cython.operator cimport dereference as deref
 ## cython: profile=True
 ## cython: linetrace=True
 
-# def dice6_cy3(int N, int ndice, int nsix):
-#     cdef int M = 0            # no of successful events
-#     cdef int six, r
-#     cdef double p
-#     for i in range(N):
-#         six = 0               # how many dice with six eyes?
-#         for j in range(ndice):
-#             # Roll die no. j
-#             r = 1 + int(6.0*rand()/RAND_MAX)
-#             if r == 6:
-#                six += 1
-#         if six >= nsix:       # successful event?
-#             M += 1
-#     p = float(M)/N
-#     return p
-
 DEF MinMatchesNumRigid = 2
 DEF EPS = 0.000001
 
@@ -69,8 +53,8 @@ cdef inline int fit_rigid(float p1_x, float p1_y, float q1_x, float q1_y,
     return 1
 
 cdef inline float compute_rigid_model_score(
-                    np.float32_t* X_T,
-                    np.float32_t* y_T,
+                    np.float32_t* X,
+                    np.float32_t* y,
                     size_t matches_num,
                     #np.ndarray[np.float32_t, ndim=2, mode='c'] X,
                     #np.ndarray[np.float32_t, ndim=2, mode='c'] y,
@@ -99,15 +83,13 @@ cdef inline float compute_rigid_model_score(
     sin_angle = sin(angle)
     # Transform each point in X, and compute the L2 distance 
     for p_idx in range(matches_num):
-        #x_idx = 2 * p_idx
-        #y_idx = x_idx + 1
-        x_idx = p_idx
-        y_idx = p_idx + matches_num
-        new_x = X_T[x_idx] * cos_angle - X_T[y_idx] * sin_angle + t_x
-        new_y = X_T[x_idx] * sin_angle + X_T[y_idx] * cos_angle + t_y
+        x_idx = 2 * p_idx
+        y_idx = x_idx + 1
+        new_x = X[x_idx] * cos_angle - X[y_idx] * sin_angle + t_x
+        new_y = X[x_idx] * sin_angle + X[y_idx] * cos_angle + t_y
 
-        d_x = new_x - y_T[x_idx]
-        d_y = new_y - y_T[y_idx]
+        d_x = new_x - y[x_idx]
+        d_y = new_y - y[y_idx]
 
         dists2_temp[p_idx] = d_x*d_x + d_y*d_y
 
@@ -159,7 +141,7 @@ cdef void get_rigid_model_inliers(
         else:
             out_inliers[p_idx] = 0
 
-cdef inline void random_choice_no_repeat(
+cdef void random_choice_no_repeat(
             size_t n,
             size_t c,
             np.ndarray[np.int32_t, ndim=1, mode='c'] out_choices
@@ -198,8 +180,10 @@ cdef inline void random_choice_no_repeat(
 @cython.boundscheck(False)  # turn off array bounds check
 @cython.wraparound(False)   # turn off negative indices ([-1,-1])
 def ransac_rigid(
-            np.ndarray[np.float32_t, ndim=3, mode='c'] sample_matches_T,
-            np.ndarray[np.float32_t, ndim=3, mode='c'] test_matches_T,
+            #np.ndarray[np.float32_t, ndim=3, mode='c'] sample_matches_T,
+            #np.ndarray[np.float32_t, ndim=3, mode='c'] test_matches_T,
+            sample_matches,
+            test_matches,
             int iterations,
             float epsilon,
             float min_inlier_ratio,
@@ -209,16 +193,16 @@ def ransac_rigid(
     """
     Ransac optimized for 2d rigid transformations only
     """
-    printf("len(sample_matches[0]): %d\n", len(sample_matches_T[0, 0]))
-    if len(sample_matches_T[0, 0]) < MinMatchesNumRigid:
+    printf("len(sample_matches[0]): %d\n", len(sample_matches[0]))
+    if len(sample_matches[0]) < MinMatchesNumRigid:
         return RANSAC_NOT_ENOUGH_POINTS, None, None, None
 
     cdef float best_model_score = 0
     cdef float best_model_angle
     cdef float best_model_t_x
     cdef float best_model_t_y
-    cdef int len_sample_matches0 = len(sample_matches_T[0, 0])
-    cdef int len_test_matches0 = len(test_matches_T[0, 0])
+    cdef int len_sample_matches0 = len(sample_matches[0])
+    cdef int len_test_matches0 = len(test_matches[0])
     # Avoiding repeated indices permutations using a dictionary
     # Limit the number of possible matches that we can search for using n choose k
     cdef long max_combinations_real = long(long(len_sample_matches0) * (len_sample_matches0 - 1) / 2) # N choose 2
@@ -235,8 +219,12 @@ def ransac_rigid(
     cdef np.ndarray[np.int32_t, ndim=1, mode='c'] choices_1d_idxs = \
             np.empty(max_iterations, dtype=np.int32)
             #np.random.choice(max_combinations, max_iterations, False)
-    cdef np.float32_t *sample_matches_T0 = &sample_matches_T[0, 0, 0]
-    cdef np.float32_t *sample_matches_T1 = &sample_matches_T[1, 0, 0]
+    cdef np.ndarray[np.float32_t, ndim=2, mode='c'] sample_matches0_arr = np.ascontiguousarray(sample_matches[0])
+    cdef np.ndarray[np.float32_t, ndim=2, mode='c'] sample_matches1_arr = np.ascontiguousarray(sample_matches[1])
+    cdef np.ndarray[np.float32_t, ndim=2, mode='c'] test_matches0_arr = np.ascontiguousarray(test_matches[0])
+    cdef np.ndarray[np.float32_t, ndim=2, mode='c'] test_matches1_arr =np.ascontiguousarray( test_matches[1])
+    cdef np.float32_t *sample_matches0 = &sample_matches0_arr[0, 0]
+    cdef np.float32_t *sample_matches1 = &sample_matches1_arr[0, 0]
     cdef np.float32_t* dists2_temp = <float *>malloc(len_test_matches0 * sizeof(np.float32_t))
 
 
@@ -247,17 +235,17 @@ def ransac_rigid(
         idx_1d = choices_1d_idxs[i]
         index1d_to_index2d(len_sample_matches0, idx_1d, &pq1_idx, &pq2_idx)
         fit_res = fit_rigid(
-            #sample_matches0[2 * pq1_idx], sample_matches0[2 * pq1_idx + 1], sample_matches1[2 * pq1_idx], sample_matches1[2 * pq1_idx + 1], # p1_x, p1_y, q1_x, q1_y
-            #sample_matches0[2 * pq2_idx], sample_matches0[2 * pq2_idx + 1], sample_matches1[2 * pq2_idx], sample_matches1[2 * pq2_idx + 1], # p2_x, p2_y, q2_x, q2_y
-            sample_matches_T0[pq1_idx], sample_matches_T0[pq1_idx + len_sample_matches0], sample_matches_T1[pq1_idx], sample_matches_T1[pq1_idx + len_sample_matches0], # p1_x, p1_y, q1_x, q1_y
-            sample_matches_T0[pq2_idx], sample_matches_T0[pq2_idx + len_sample_matches0], sample_matches_T1[pq2_idx], sample_matches_T1[pq2_idx + len_sample_matches0], # p2_x, p2_y, q2_x, q2_y
+            sample_matches0[2 * pq1_idx], sample_matches0[2 * pq1_idx + 1], sample_matches1[2 * pq1_idx], sample_matches1[2 * pq1_idx + 1], # p1_x, p1_y, q1_x, q1_y
+            sample_matches0[2 * pq2_idx], sample_matches0[2 * pq2_idx + 1], sample_matches1[2 * pq2_idx], sample_matches1[2 * pq2_idx + 1], # p2_x, p2_y, q2_x, q2_y
+            #sample_matches_T0[pq1_idx], sample_matches_T0[pq1_idx + len_sample_matches0], sample_matches_T1[pq1_idx], sample_matches_T1[pq1_idx + len_sample_matches0], # p1_x, p1_y, q1_x, q1_y
+            #sample_matches_T0[pq2_idx], sample_matches_T0[pq2_idx + len_sample_matches0], sample_matches_T1[pq2_idx], sample_matches_T1[pq2_idx + len_sample_matches0], # p2_x, p2_y, q2_x, q2_y
             &model_angle, &model_t_x, &model_t_y
             )
         if fit_res == 0:
             continue
 
         # compute the model's score (on the test_matches)
-        proposed_model_score = compute_rigid_model_score(&test_matches_T[0, 0, 0], &test_matches_T[1, 0, 0], len_test_matches0,
+        proposed_model_score = compute_rigid_model_score(&test_matches0_arr[0, 0], &test_matches1_arr[0, 0], len_test_matches0,
             model_angle, model_t_x, model_t_y, epsilon, min_inlier_ratio, min_num_inlier, dists2_temp)
 
         if proposed_model_score > best_model_score:
