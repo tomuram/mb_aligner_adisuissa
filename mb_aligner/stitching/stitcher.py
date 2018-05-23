@@ -39,12 +39,13 @@ class DetectorWorker(object):
                 break
             # job = (matcher's result queue idx, tile fname, start_point, crop_bbox)
             #out_queue, tile_fname, start_point, crop_bbox = job
-            out_queue_idx, tile_fname, start_point, crop_bbox = job
+            out_queue_idx, tile, start_point, crop_bbox = job
             out_queue = self._all_result_queues[out_queue_idx]
             # process the job
             print("Received job:", job)
-            print("Reading file:", tile_fname)
-            img = cv2.imread(tile_fname, 0)
+            print("Reading file:", tile.img_fname)
+            #img = cv2.imread(tile_fname, 0)
+            img = tile.image
             if crop_bbox is not None:
                 # Find the overlap between the given bbox and the tile actual bounding box,
                 # and crop that overlap area
@@ -72,8 +73,8 @@ class DetectorWorker(object):
             kps_pts += delta
             # result = (tile fname, local area, features pts, features descs)
             # Put result in matcher's result queue
-            print("submitting result for:", tile_fname)
-            out_queue.put((tile_fname, kps_pts, descs))
+            print("submitting result for:", tile.img_fname)
+            out_queue.put((tile, kps_pts, descs))
 
 
 class MatcherWorker(object):
@@ -119,18 +120,18 @@ class MatcherWorker(object):
             # Send two detector jobs
             print('Submitting job1 to detectors_in_queue')
             #job1 = (self._matcher_queue, tile1.img_fname, (bbox1[0], bbox1[2]), intersection)
-            job1 = (self._matcher_thread_idx, tile1.img_fname, (bbox1[0], bbox1[2]), intersection)
+            job1 = (self._matcher_thread_idx, tile1, (bbox1[0], bbox1[2]), intersection)
             self._detectors_in_queue.put(job1)
             print('Submitting job2 to detectors_in_queue')
             #job2 = (self._matcher_queue, tile2.img_fname, (bbox2[0], bbox2[2]), intersection)
-            job2 = (self._matcher_thread_idx, tile2.img_fname, (bbox2[0], bbox2[2]), intersection)
+            job2 = (self._matcher_thread_idx, tile2, (bbox2[0], bbox2[2]), intersection)
             self._detectors_in_queue.put(job2)
 
             # fetch the results
             res_a = self._matcher_queue.get()
             res_b = self._matcher_queue.get()
-            # res_a = (tile_fname_A, kps_pts_A, descs_A))
-            if res_a[0] == tile1.img_fname:
+            # res_a = (tile_A, kps_pts_A, descs_A))
+            if res_a[0] == tile1:
                 _, kps_pts1, descs1 = res_a
                 _, kps_pts2, descs2 = res_b
             else:
@@ -546,12 +547,12 @@ def test_detector(section_dir, conf_fname, workers_num, files_num):
 
 
 if __name__ == '__main__':
-    #section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
-    #section_num = 10
+    section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
+    section_num = 10
     #section_dir = '/n/lichtmanfs2/100um_Sept2017/EM/w01h03/100umsept2017_20170912_17-52-13/181_S181R1/full_image_coordinates.txt'
     #section_num = 181
-    section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/003_S3R1/full_image_coordinates.txt'
-    section_num = 3
+    #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/003_S3R1/full_image_coordinates.txt'
+    #section_num = 3
     conf_fname = '../../conf/conf_example.yaml'
     processes_num = 8
     out_fname = './output_stitched_sec{}.json'.format(section_num)
