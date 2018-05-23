@@ -63,7 +63,7 @@ def test1():
     end_time = time.time()
 
 
-    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
+    print("Output is: {}, time: {} seconds".format(out[1], end_time - st_time))
 
 def test2():
     print("**** Testing 50% outliers with 500 points:")
@@ -119,7 +119,7 @@ def test2():
     end_time = time.time()
 
 
-    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
+    print("Output is: {}, time: {} seconds".format(out[1], end_time - st_time))
 
 
 def test3():
@@ -175,7 +175,7 @@ def test3():
     end_time = time.time()
 
 
-    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
+    print("Output is: {}, time: {} seconds".format(out[1], end_time - st_time))
 
 
 def test4():
@@ -228,7 +228,7 @@ def test4():
     end_time = time.time()
 
 
-    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
+    print("Output is: {}, time: {} seconds".format(out[1], end_time - st_time))
 
 
 
@@ -296,7 +296,7 @@ def test5():
     end_time = time.time()
 
 
-    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
+    print("Output is: {}, time: {} seconds".format(out[1], end_time - st_time))
 
 #     assert_stats(profile, func.__name__)
 
@@ -385,7 +385,7 @@ def test6():
     end_time = time.time()
 
 
-    print("Output is: {}, time: {} seconds".format(out, end_time - st_time))
+    print("Output is: {}, time: {} seconds".format(out[1], end_time - st_time))
 
 #     assert_stats(profile, func.__name__)
 

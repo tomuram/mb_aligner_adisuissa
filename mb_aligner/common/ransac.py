@@ -1,10 +1,14 @@
 import numpy as np
 import copy
-from rh_renderer.models import Transforms
+import rh_renderer.models as models
 from scipy.misc import comb
 from rh_logger.api import logger
 import logging
 import math
+
+import pyximport
+pyximport.install()
+from mb_aligner.common import ransac_cython
 
 def array_to_string(arr):
     return arr.tostring()
@@ -177,12 +181,8 @@ def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon,
     # model = Model.create_model(target_model_type)
     assert(len(sample_matches[0]) == len(sample_matches[1]))
 
-    best_model = None
-    best_model_score = 0 # The higher the better
-    best_inlier_mask = None
-    best_model_mean_dists = 0
-    proposed_model = Transforms.create(target_model_type)
-
+    proposed_model = models.Transforms.create(target_model_type)
+       
     max_rot_deg_cos = None
     if max_rot_deg is not None:
         max_rot_deg_cos = math.cos(max_rot_deg * math.pi / 180.0)
@@ -191,6 +191,34 @@ def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon,
     if proposed_model.MIN_MATCHES_NUM > sample_matches[0].shape[0]:
         logger.report_event("RANSAC cannot find a good model because the number of initial matches ({}) is too small.".format(sample_matches[0].shape[0]), log_level=logging.WARN)
         return None, None, None
+
+    if target_model_type == 1:
+        if max_rot_deg_cos is None:
+            max_rot_deg_cos = 0
+        res_status, res_model_params, res_inliers_mask = ransac_cython.ransac_rigid(
+                #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+                [sample_matches[0].astype(np.float32), sample_matches[1].astype(np.float32)],
+                [test_matches[0].astype(np.float32), test_matches[1].astype(np.float32)],
+                int(iterations),
+                float(epsilon),
+                float(min_inlier_ratio),
+                int(min_num_inlier),
+                float(max_rot_deg_cos)
+            )
+
+        if res_status != 0: # failure
+            return None, None, None
+            
+
+        best_model = models.RigidModel(res_model_params[0], (res_model_params[1], res_model_params[2]))
+        best_model_mean_dists = 0
+
+        return res_inliers_mask, best_model, best_model_mean_dists
+ 
+    best_model = None
+    best_model_score = 0 # The higher the better
+    best_inlier_mask = None
+    best_model_mean_dists = 0
 
     # Avoiding repeated indices permutations using a dictionary
     # Limit the number of possible matches that we can search for using n choose k
@@ -235,9 +263,9 @@ def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon,
             best_model_mean_dists = proposed_model_mean
     '''
     if best_model is None:
-        print "Cannot find a good model during ransac. best_model_score {}".format(best_model_score)
+        print("Cannot find a good model during ransac. best_model_score {}".format(best_model_score))
     else:
-        print "RANSAC result: best_model_score", best_model_score, "best_model:", best_model.to_str(), "best_model_mean_dists:", best_model_mean_dists
+        print("RANSAC result: best_model_score", best_model_score, "best_model:", best_model.to_str(), "best_model_mean_dists:", best_model_mean_dists)
     '''
     return best_inlier_mask, best_model, best_model_mean_dists
 

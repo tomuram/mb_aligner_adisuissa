@@ -62,13 +62,14 @@ cdef inline float compute_rigid_model_score(
                     float epsilon,
                     float min_inlier_ratio,
                     float min_num_inlier,
-                    np.float32_t *dists2_temp
+                    np.float32_t *dists2_temp,
+                    size_t *out_inliers_num
             ) nogil:
     """
     Applies the rigid transformation for points in X and computes the L2 distance to the points in Y.
     Accepts as inlier each match that has distance at most epsilon.
     """
-    cdef int inliers_num = 0
+    cdef size_t inliers_num = 0
     cdef size_t p_idx
     cdef float new_x, d_x, new_y, d_y, dist2, cos_angle, sin_angle
     cdef float epsilon2 = epsilon * epsilon # epsilon^2, to avoid sqrt later on
@@ -103,6 +104,7 @@ cdef inline float compute_rigid_model_score(
     cdef float accepted_ratio = float(inliers_num) / matches_num
     if inliers_num < min_num_inlier or accepted_ratio < min_inlier_ratio:
         return -1
+    out_inliers_num[0] = inliers_num
     return accepted_ratio
 
 cdef void get_rigid_model_inliers(
@@ -140,6 +142,8 @@ cdef void get_rigid_model_inliers(
             out_inliers[p_idx] = 1
         else:
             out_inliers[p_idx] = 0
+
+
 
 cdef void random_choice_no_repeat(
             size_t n,
@@ -195,12 +199,13 @@ def ransac_rigid(
     """
     printf("len(sample_matches[0]): %d\n", len(sample_matches[0]))
     if len(sample_matches[0]) < MinMatchesNumRigid:
-        return RANSAC_NOT_ENOUGH_POINTS, None, None, None
+        return RANSAC_NOT_ENOUGH_POINTS, None, None
 
     cdef float best_model_score = 0
     cdef float best_model_angle
     cdef float best_model_t_x
     cdef float best_model_t_y
+    cdef size_t best_model_inliers_num
     cdef int len_sample_matches0 = len(sample_matches[0])
     cdef int len_test_matches0 = len(test_matches[0])
     # Avoiding repeated indices permutations using a dictionary
@@ -211,7 +216,8 @@ def ransac_rigid(
     cdef size_t idx_1d, pq1_idx, pq2_idx
     cdef int fit_res
     cdef float model_angle, model_t_x, model_t_y
-    cdef float proposed_model_score
+    cdef float proposed_model_score, epsilon2
+    cdef size_t model_inliers_num
     # choose max_iterations different pairs of matches to create the transformation
     # Note that we'll randomly choose a number between 0 to max_combinations-1, and then convert it
     # to a single pair of matches (see: https://stackoverflow.com/questions/27086195/linear-index-upper-triangular-matrix)
@@ -225,42 +231,55 @@ def ransac_rigid(
     cdef np.ndarray[np.float32_t, ndim=2, mode='c'] test_matches1_arr =np.ascontiguousarray( test_matches[1])
     cdef np.float32_t *sample_matches0 = &sample_matches0_arr[0, 0]
     cdef np.float32_t *sample_matches1 = &sample_matches1_arr[0, 0]
-    cdef np.float32_t* dists2_temp = <float *>malloc(len_test_matches0 * sizeof(np.float32_t))
+    cdef np.ndarray[np.float32_t, ndim=1, mode='c'] np_dists2_temp = np.empty((len_test_matches0,), dtype=np.float32)
+    cdef np.float32_t* dists2_temp = &np_dists2_temp[0]
+    cdef np.ndarray[np.uint8_t, ndim=1, mode='c', cast=True] good_dists_mask
 
 
     random_choice_no_repeat(max_combinations, max_iterations, choices_1d_idxs)
 
-    # with nogil:
-    for i in range(max_iterations):
-        idx_1d = choices_1d_idxs[i]
-        index1d_to_index2d(len_sample_matches0, idx_1d, &pq1_idx, &pq2_idx)
-        fit_res = fit_rigid(
-            sample_matches0[2 * pq1_idx], sample_matches0[2 * pq1_idx + 1], sample_matches1[2 * pq1_idx], sample_matches1[2 * pq1_idx + 1], # p1_x, p1_y, q1_x, q1_y
-            sample_matches0[2 * pq2_idx], sample_matches0[2 * pq2_idx + 1], sample_matches1[2 * pq2_idx], sample_matches1[2 * pq2_idx + 1], # p2_x, p2_y, q2_x, q2_y
-            #sample_matches_T0[pq1_idx], sample_matches_T0[pq1_idx + len_sample_matches0], sample_matches_T1[pq1_idx], sample_matches_T1[pq1_idx + len_sample_matches0], # p1_x, p1_y, q1_x, q1_y
-            #sample_matches_T0[pq2_idx], sample_matches_T0[pq2_idx + len_sample_matches0], sample_matches_T1[pq2_idx], sample_matches_T1[pq2_idx + len_sample_matches0], # p2_x, p2_y, q2_x, q2_y
-            &model_angle, &model_t_x, &model_t_y
-            )
-        if fit_res == 0:
-            continue
+    with nogil:
+        for i in range(max_iterations):
+            idx_1d = choices_1d_idxs[i]
+            index1d_to_index2d(len_sample_matches0, idx_1d, &pq1_idx, &pq2_idx)
+            fit_res = fit_rigid(
+                sample_matches0[2 * pq1_idx], sample_matches0[2 * pq1_idx + 1], sample_matches1[2 * pq1_idx], sample_matches1[2 * pq1_idx + 1], # p1_x, p1_y, q1_x, q1_y
+                sample_matches0[2 * pq2_idx], sample_matches0[2 * pq2_idx + 1], sample_matches1[2 * pq2_idx], sample_matches1[2 * pq2_idx + 1], # p2_x, p2_y, q2_x, q2_y
+                #sample_matches_T0[pq1_idx], sample_matches_T0[pq1_idx + len_sample_matches0], sample_matches_T1[pq1_idx], sample_matches_T1[pq1_idx + len_sample_matches0], # p1_x, p1_y, q1_x, q1_y
+                #sample_matches_T0[pq2_idx], sample_matches_T0[pq2_idx + len_sample_matches0], sample_matches_T1[pq2_idx], sample_matches_T1[pq2_idx + len_sample_matches0], # p2_x, p2_y, q2_x, q2_y
+                &model_angle, &model_t_x, &model_t_y
+                )
+            if fit_res == 0:
+                continue
 
-        # compute the model's score (on the test_matches)
-        proposed_model_score = compute_rigid_model_score(&test_matches0_arr[0, 0], &test_matches1_arr[0, 0], len_test_matches0,
-            model_angle, model_t_x, model_t_y, epsilon, min_inlier_ratio, min_num_inlier, dists2_temp)
+            # compute the model's score (on the test_matches)
+            proposed_model_score = compute_rigid_model_score(&test_matches0_arr[0, 0], &test_matches1_arr[0, 0], len_test_matches0,
+                model_angle, model_t_x, model_t_y, epsilon, min_inlier_ratio, min_num_inlier, dists2_temp, &model_inliers_num)
 
-        if proposed_model_score > best_model_score:
-            best_model_score = proposed_model_score
-            best_model_angle = model_angle
-            best_model_t_x = model_t_x
-            best_model_t_y = model_t_y
+            if proposed_model_score > best_model_score:
+                best_model_score = proposed_model_score
+                best_model_angle = model_angle
+                best_model_t_x = model_t_x
+                best_model_t_y = model_t_y
+                best_model_inliers_num = model_inliers_num
 
-    free(dists2_temp)
 
     if best_model_score == 0:
         # No good model found
-        return None, None
+        return RANSAC_NO_GOOD_MODEL_FOUND, None, None
 
-    return RANSAC_SUCCESS, (best_model_angle, best_model_t_x, best_model_t_y)#, get_rigid_model_inliers output
+    # Find the inliers
+    compute_rigid_model_score(&test_matches0_arr[0, 0], &test_matches1_arr[0, 0], len_test_matches0,
+        best_model_angle, best_model_t_x, best_model_t_y, epsilon, min_inlier_ratio, min_num_inlier, dists2_temp, &model_inliers_num)
+
+    
+    good_dists_mask = np.empty((len_test_matches0,), dtype=bool)
+    epsilon2 = epsilon*epsilon
+    for i in range(len_test_matches0):
+        good_dists_mask[i] = dists2_temp[i] < epsilon**2
+    #good_dists_mask = np_dists2_temp < epsilon*epsilon
+    
+    return RANSAC_SUCCESS, (best_model_angle, best_model_t_x, best_model_t_y), good_dists_mask
         
 
 def ransac(
