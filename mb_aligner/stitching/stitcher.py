@@ -12,7 +12,7 @@ from mb_aligner.dal.section import Section
 from mb_aligner.common.detector import FeaturesDetector
 from mb_aligner.common.matcher import FeaturesMatcher
 from mb_aligner.factories.processes_factory import ProcessesFactory
-from mb_aligner.stitching.optimize_2d_mfovs import OptimizerRigid2D
+#from mb_aligner.stitching.optimize_2d_mfovs import OptimizerRigid2D
 import multiprocessing as mp
 import threading
 #import queue
@@ -232,10 +232,10 @@ class Stitcher(object):
         self._matchers_out_queue = mp.Queue(maxsize=matcher_params.get("queue_max_size", 0)) # Used by the manager to collect the matchers results
 
         # Set up the pool of detectors
-        #self._detectors = [ThreadWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
-        #self._matchers = [ThreadWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
-        self._detectors = [ProcessWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
-        self._matchers = [ProcessWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
+        self._detectors = [ThreadWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
+        self._matchers = [ThreadWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
+        #self._detectors = [ProcessWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
+        #self._matchers = [ProcessWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
         
 #         # Set up the pools of dethreads (each thread will have its own queue to pass jobs around)
 #         # Set up the queues
@@ -263,7 +263,7 @@ class Stitcher(object):
 #         #self._detector = FeaturesDetector(conf['detector_type'], **detector_params)
 #         #self._matcher = FeaturesMatcher(self._detector, **matcher_params)
         optimizer_params = conf.get('optimizer_params', {})
-        self._optimizer = OptimizerRigid2D(**optimizer_params)
+        #self._optimizer = OptimizerRigid2D(**optimizer_params)
 
 
 
@@ -546,8 +546,12 @@ def test_detector(section_dir, conf_fname, workers_num, files_num):
 
 
 if __name__ == '__main__':
-    section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
-    section_num = 10
+    #section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
+    #section_num = 10
+    #section_dir = '/n/lichtmanfs2/100um_Sept2017/EM/w01h03/100umsept2017_20170912_17-52-13/181_S181R1/full_image_coordinates.txt'
+    #section_num = 181
+    section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/003_S3R1/full_image_coordinates.txt'
+    section_num = 3
     conf_fname = '../../conf/conf_example.yaml'
     processes_num = 8
     out_fname = './output_stitched_sec{}.json'.format(section_num)
