@@ -30,6 +30,8 @@ class FeaturesMatcher(object):
 
 
     def match(self, features_kps1, features_descs1, features_kps2, features_descs2):
+        if features_descs1 is None or len(features_descs1) < self._params["min_features_num"] or features_descs2 is None or len(features_descs2) < self._params["min_features_num"]:
+            return None
         matches = self._matcher.knnMatch(features_descs1, features_descs2, k=2)
 
         good_matches = []
@@ -54,6 +56,9 @@ class FeaturesMatcher(object):
 
     def match_and_filter(self, features_kps1, features_descs1, features_kps2, features_descs2):
         match_points = self.match(features_kps1, features_descs1, features_kps2, features_descs2)
+
+        if match_points is None:
+            return None, None
 
         model, filtered_matches = ransac.filter_matches(match_points, match_points, self._params['model_index'],
                     self._params['iterations'], self._params['max_epsilon'], self._params['min_inlier_ratio'],
