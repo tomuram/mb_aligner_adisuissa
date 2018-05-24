@@ -6,13 +6,24 @@ import time
 import scipy.sparse as spp
 from scipy.sparse.linalg import lsqr
 import scipy.optimize
+from rh_renderer.models import RigidModel
 #import common
 
 EPS = 0.000001
 
 class Rigid2DOptimizer(object):
     # TODO - make it a class
+    def __init__(self, **kwargs):
+        self._damping = float(kwargs.get("damping", 0.0))
+        self._huber_delta = float(kwargs.get("huber_delta", 15))
+        self._max_iterations = int(kwargs.get("max_iterations", 1000))
+        self._init_gamma = float(kwargs.get("init_gamma", 0.00000000001))
+        self._min_gamma = float(kwargs.get("min_gamma", 1e-30))
+        self._eps = float(kwargs.get("eps", 1e-9))
+        self._pre_translate = "pre_translate" in kwargs
+        
 
+    @staticmethod
     def apply_rigid_transform(pts, theta, t_x, t_y):
         cos_theta = np.cos(theta)
         sin_theta = np.sin(theta)
@@ -20,7 +31,8 @@ class Rigid2DOptimizer(object):
                    [sin_theta, cos_theta]],
                    pts.T).T + np.array([t_x, t_y])
 
-    def optimize_fun(params, tile_names_map, matches, matches_num):
+    @staticmethod
+    def optimize_func(params, tile_names_map, matches, matches_num):
         # Compute the residuals of all the matches
         residuals = np.empty((matches_num, ), dtype=np.float32)
         start_idx = 0
@@ -29,8 +41,8 @@ class Rigid2DOptimizer(object):
 
             tile1_params_start_idx = tile_names_map[pair_name[0]] * 3
             tile2_params_start_idx = tile_names_map[pair_name[1]] * 3
-            pts1_transformed = apply_rigid_transform(pair_matches[0], *params[tile1_params_start_idx:tile1_params_start_idx+3])
-            pts2_transformed = apply_rigid_transform(pair_matches[1], *params[tile2_params_start_idx:tile2_params_start_idx+3])
+            pts1_transformed = Rigid2DOptimizer.apply_rigid_transform(pair_matches[0], *params[tile1_params_start_idx:tile1_params_start_idx+3])
+            pts2_transformed = Rigid2DOptimizer.apply_rigid_transform(pair_matches[1], *params[tile2_params_start_idx:tile2_params_start_idx+3])
 
             # compute the L2 distance between the two sets of points
             deltas = pts1_transformed - pts2_transformed
@@ -44,6 +56,7 @@ class Rigid2DOptimizer(object):
         return residuals
         
 
+    @staticmethod
     def compute_all_dists(matches, transforms, matches_num):
         dists = np.empty((matches_num, ), dtype=np.float32)
         start_idx = 0
@@ -52,8 +65,8 @@ class Rigid2DOptimizer(object):
 
             transform1 = transforms[pair_name[0]]
             transform2 = transforms[pair_name[1]]
-            pts1_transformed = apply_rigid_transform(pair_matches[0], *transform1)
-            pts2_transformed = apply_rigid_transform(pair_matches[1], *transform2)
+            pts1_transformed = Rigid2DOptimizer.apply_rigid_transform(pair_matches[0], *transform1)
+            pts2_transformed = Rigid2DOptimizer.apply_rigid_transform(pair_matches[1], *transform2)
 
             # compute the L2 distance between the two sets of points
             deltas = pts1_transformed - pts2_transformed
@@ -62,6 +75,7 @@ class Rigid2DOptimizer(object):
         return dists
      
 
+    @staticmethod
     def grad_F_huber(huber_delta, params, tile_names_map, matches, matches_num):
         
         # Compute the residuals of all the matches
@@ -74,8 +88,8 @@ class Rigid2DOptimizer(object):
             tile1_params_start_idx = tile_names_map[pair_name[0]] * 3
             tile2_params_start_idx = tile_names_map[pair_name[1]] * 3
 
-            pts1_transformed = apply_rigid_transform(pair_matches[0], *params[tile1_params_start_idx:tile1_params_start_idx+3])
-            pts2_transformed = apply_rigid_transform(pair_matches[1], *params[tile2_params_start_idx:tile2_params_start_idx+3])
+            pts1_transformed = Rigid2DOptimizer.apply_rigid_transform(pair_matches[0], *params[tile1_params_start_idx:tile1_params_start_idx+3])
+            pts2_transformed = Rigid2DOptimizer.apply_rigid_transform(pair_matches[1], *params[tile2_params_start_idx:tile2_params_start_idx+3])
             deltas = pts1_transformed - pts2_transformed
             delta_x = deltas[:, 0]
             delta_y = deltas[:, 1]
@@ -119,10 +133,10 @@ class Rigid2DOptimizer(object):
         return grad_f_result
 
 
-    def gradient_descent(optimize_fun, p0, grad_F_huber, huber_delta, max_iterations=1000, init_gamma=0.00000000001, min_gamma=1e-30, eps=1e-9, args=None):
+    def _gradient_descent(self, optimize_func, p0, grad_F_huber, args=None):
         
-        def compute_cost_huber(optimize_fun, cur_p, params, huber_delta):
-            residuals = optimize_fun(cur_p, *params)
+        def compute_cost_huber(optimize_func, cur_p, params, huber_delta):
+            residuals = optimize_func(cur_p, *params)
             cost = np.empty_like(residuals)
             residuals_huber_mask = residuals <= huber_delta
             cost[residuals_huber_mask] = 0.5 * residuals[residuals_huber_mask]**2
@@ -130,37 +144,37 @@ class Rigid2DOptimizer(object):
             return np.sum(cost)
 
         cur_p = p0
-        #cur_cost = np.sum(optimize_fun(cur_p, *args))
-        cur_cost = compute_cost_huber(optimize_fun, cur_p, args, huber_delta)
+        #cur_cost = np.sum(optimize_func(cur_p, *args))
+        cur_cost = compute_cost_huber(optimize_func, cur_p, args, self._huber_delta)
         print("Initial cost: {}".format(cur_cost))
-        gamma = init_gamma
+        gamma = self._init_gamma
 
-        for it in range(max_iterations):
+        for it in range(self._max_iterations):
             print("Iteration {}".format(it))
             prev_p = cur_p
             prev_cost = cur_cost
-            cur_p = prev_p - gamma * grad_F_huber(huber_delta, prev_p, *args)
+            cur_p = prev_p - gamma * grad_F_huber(self._huber_delta, prev_p, *args)
             #print("New params: {}".format(cur_p))
-            #cur_cost = np.sum(optimize_fun(cur_p, *args))
-            cur_cost = compute_cost_huber(optimize_fun, cur_p, args, huber_delta)
+            #cur_cost = np.sum(optimize_func(cur_p, *args))
+            cur_cost = compute_cost_huber(optimize_func, cur_p, args, self._huber_delta)
             print("New cost: {}".format(cur_cost))
             if cur_cost > prev_cost: # we took a bad step: undo it, scale down gamma, and start over
                 print("Backtracking step")
                 cur_p = prev_p
                 cur_cost = prev_cost
                 gamma *= 0.5
-            elif np.all(cur_p - prev_p <= eps): # We took a good step, but the change to the parameters vector is negligible
+            elif np.all(cur_p - prev_p <= self._eps): # We took a good step, but the change to the parameters vector is negligible
                 break
             else: # We took a good step, try to increase the step size a bit
                 gamma *= 1.1
-            if gamma < min_gamma:
+            if gamma < self._min_gamma:
                 break
 
         #print("The local minimum occurs at", cur_p)
         return cur_p
 
 
-    def optimize(orig_locs, matches, pre_translate=False):
+    def optimize(self, orig_locs, matches):
         """
         The aim is to find for each tile a triplet: tetha, t_x, and t_y that will define the
         rigid transformation that needs to be applied to that tile.
@@ -177,12 +191,11 @@ class Rigid2DOptimizer(object):
         matches_num = np.sum([len(m[0]) for m in matches.values()])
         p0 = np.empty((len(orig_locs)*3, ), dtype=np.float32) # all triplets [theta1, t_x1, t_y1, theta2, t_x2, t_y2, ...]
 
-        if pre_translate:
-            damping = 0.0
+        if self._pre_translate:
 
             # For debug:
             solution1 = {name:[0, orig_locs[name][0], orig_locs[name][1]] for name, idx in tile_names_map.items()}
-            dists = compute_all_dists(matches, solution1, matches_num)
+            dists = Rigid2DOptimizer.compute_all_dists(matches, solution1, matches_num)
             print("pre optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)))
 
             st_time = time.time()
@@ -210,8 +223,8 @@ class Rigid2DOptimizer(object):
             A = A.tocsr()
 
             #p0_translate_x = np.array([orig_locs[k][0] for k in tile_names]) # [t_x1, t_x2, ...] with the original locations
-            Tx = lsqr(A, b[:, 0], damp=damping)[0]
-            Ty = lsqr(A, b[:, 1], damp=damping)[0]
+            Tx = lsqr(A, b[:, 0], damp=self._damping)[0]
+            Ty = lsqr(A, b[:, 1], damp=self._damping)[0]
             print("translation-only optimization time: {} seconds".format(time.time() - st_time))
             # Normalize all deltas to (0, 0)
             Tx -= np.min(Tx)
@@ -222,7 +235,7 @@ class Rigid2DOptimizer(object):
             # For debug:
             #solution2 = {name:[0, p0[1::3][idx], p0[2::3][idx]] for name, idx in tile_names_map.items()}
             solution2 = {name:[0, Tx[idx], Ty[idx]] for name, idx in tile_names_map.items()}
-            dists = compute_all_dists(matches, solution2, matches_num)
+            dists = Rigid2DOptimizer.compute_all_dists(matches, solution2, matches_num)
             print("post translation optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)))
         else:
             p0[1::3] = [orig_locs[k][0] for k in tile_names] # set default X to original location's X
@@ -234,15 +247,15 @@ class Rigid2DOptimizer(object):
 
         # Create a sparse matrix that has 
         st_time = time.time()
-        #res = least_squares(optimize_fun, p0, args=(tile_names_map, matches, matches_num), verbose=2)
-        #res = least_squares(optimize_fun, p0, loss='huber', f_scale=15, args=(tile_names_map, matches, matches_num), verbose=2)
-        #res = least_squares(optimize_fun, p0, loss='soft_l1', f_scale=15, args=(tile_names_map, matches, matches_num), verbose=2)
+        #res = least_squares(optimize_func, p0, args=(tile_names_map, matches, matches_num), verbose=2)
+        #res = least_squares(optimize_func, p0, loss='huber', f_scale=15, args=(tile_names_map, matches, matches_num), verbose=2)
+        #res = least_squares(optimize_func, p0, loss='soft_l1', f_scale=15, args=(tile_names_map, matches, matches_num), verbose=2)
     #     stepsize = 0.0001
     #     max_iterations = 1000
-    #     res = gradient_descent(optimize_fun, p0, max_iterations, stepsize, args=(tile_names_map, matches, matches_num))
+    #     res = gradient_descent(optimize_func, p0, max_iterations, stepsize, args=(tile_names_map, matches, matches_num))
 
         huber_delta = 15 # Maximal L2 distance for a match to be considered inlier
-        res = gradient_descent(optimize_fun, p0, grad_F_huber, huber_delta, args=(tile_names_map, matches, matches_num))
+        res = self._gradient_descent(Rigid2DOptimizer.optimize_func, p0, Rigid2DOptimizer.grad_F_huber, args=(tile_names_map, matches, matches_num))
         end_time = time.time()
 
         print("non-linear optimization time: {} seconds".format(end_time - st_time))
@@ -254,26 +267,30 @@ class Rigid2DOptimizer(object):
         else:
             raise Exception("Could not find a valid solution to the optimization problem")
 
-        dists = compute_all_dists(matches, solution, matches_num)
+        dists = Rigid2DOptimizer.compute_all_dists(matches, solution, matches_num)
         print("post optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)))
-        return solution
 
-    def fix_matches(orig_locs, matches, new_matches_num=4):
-    #     # Create "false matches" in case non are there
-    #     for pair_name, pair_matches in matches.values():
-    #         if len(pair_matches[0]) < 2:
-    #             print("Creating made up matches for pair: {} -> {}".format(os.path.basename(pair_name[0]), os.path.basename(pair_name[1])))
-    #             pair_matches[0] = np.zeros((new_matches_num, 2))
-    #             pair_matches[1] = np.zeros((new_matches_num, 2))
-        # Remove any pair of matched tiles that don't have matches
-        to_remove_keys = []
-        for pair_name, pair_matches in matches.items():
-            if len(pair_matches[0]) == 0:
-                print("Removing no matches for pair: {} -> {}".format(os.path.basename(pair_name[0]), os.path.basename(pair_name[1])))
-                to_remove_keys.append(pair_name)
+        # create the optimized models for each tile
+        optimized_models = {name:RigidModel(res[idx*3], res[idx*3+1:idx*3+3]) for name, idx in tile_names_map.items()}
+        return optimized_models
 
-        for k in to_remove_keys:
-            del matches[k]
+
+#     def fix_matches(orig_locs, matches, new_matches_num=4):
+#     #     # Create "false matches" in case non are there
+#     #     for pair_name, pair_matches in matches.values():
+#     #         if len(pair_matches[0]) < 2:
+#     #             print("Creating made up matches for pair: {} -> {}".format(os.path.basename(pair_name[0]), os.path.basename(pair_name[1])))
+#     #             pair_matches[0] = np.zeros((new_matches_num, 2))
+#     #             pair_matches[1] = np.zeros((new_matches_num, 2))
+#         # Remove any pair of matched tiles that don't have matches
+#         to_remove_keys = []
+#         for pair_name, pair_matches in matches.items():
+#             if len(pair_matches[0]) == 0:
+#                 print("Removing no matches for pair: {} -> {}".format(os.path.basename(pair_name[0]), os.path.basename(pair_name[1])))
+#                 to_remove_keys.append(pair_name)
+# 
+#         for k in to_remove_keys:
+#             del matches[k]
             
 
 if __name__ == '__main__':

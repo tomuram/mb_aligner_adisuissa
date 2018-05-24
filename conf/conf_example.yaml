@@ -31,12 +31,16 @@ stitching:
         #regularizer_model_index: 1
         #regularizer_lambda: 0.1
 
+    optimizer_type: RIGID
     optimizer_params:
-        maxIterations : 1000
-        maxEpsilon: 5
-        stepSize: 0.1
         damping: 0.01
- 
+        huber_delta: 15
+        max_iterations: 1000
+        init_gamma: 0.00000000001
+        min_gamma: 1e-30
+        eps: 1e-9
+        pre_translate: True
+
 
 alignment:
     #detector_type: SIFT
