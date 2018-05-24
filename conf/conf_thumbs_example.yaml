@@ -16,7 +16,7 @@ stitching:
     matcher_threads: 20
     matcher_params:
         ROD_cutoff: 0.9
-        model_index: 1 # 0 - Translation, 1 - Rigid, 3 - Affine
+        model_index: 0 # 0 - Translation, 1 - Rigid, 3 - Affine
         #num_filtered_percent: 0.1
         #filter_rate_cutoff: 0.1
         min_features_num: 10
@@ -31,10 +31,8 @@ stitching:
         #regularizer_model_index: 1
         #regularizer_lambda: 0.1
 
+    optimizer_type: TRANSLATION_DAMPING
     optimizer_params:
-        maxIterations : 1000
-        maxEpsilon: 5
-        stepSize: 0.1
         damping: 0.01
  
 

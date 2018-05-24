@@ -37,9 +37,9 @@ class DetectorWorker(object):
             job = self._input_queue.get()
             if job is None:
                 break
-            # job = (matcher's result queue idx, tile fname, start_point, crop_bbox)
+            # job = (matcher's result queue idx, tile id, tile, start_point, crop_bbox)
             #out_queue, tile_fname, start_point, crop_bbox = job
-            out_queue_idx, tile, start_point, crop_bbox = job
+            out_queue_idx, tile_id, tile, start_point, crop_bbox = job
             out_queue = self._all_result_queues[out_queue_idx]
             # process the job
             print("Received job:", job)
@@ -58,6 +58,7 @@ class DetectorWorker(object):
                                 min(int(local_crop_bbox[3]), img.shape[0])
                                   ]
                 img = img[local_crop_bbox[2]:local_crop_bbox[3], local_crop_bbox[0]:local_crop_bbox[1]]
+                #print("local_crop_bbox: {}".format(local_crop_bbox))
                 
             print("detecting features file:", job[1])
             kps, descs = self._detector.detect(img)
@@ -65,16 +66,20 @@ class DetectorWorker(object):
             kps_pts = np.empty((len(kps), 2), dtype=np.float64)
             for kp_i, kp in enumerate(kps):
                 kps_pts[kp_i][:] = kp.pt
-            # Change the features key points to the world coordinates
-            delta = np.array(start_point)
+#             # Change the features key points to the world coordinates
+#             delta = np.array(start_point)
+#             if crop_bbox is not None:
+#                 delta[0] += local_crop_bbox[0]
+#                 delta[1] += local_crop_bbox[2]
+#             kps_pts += delta
             if crop_bbox is not None:
-                delta[0] += local_crop_bbox[0]
-                delta[1] += local_crop_bbox[2]
-            kps_pts += delta
+                kps_pts[:, 0] += local_crop_bbox[0]
+                kps_pts[:, 1] += local_crop_bbox[2]
             # result = (tile fname, local area, features pts, features descs)
             # Put result in matcher's result queue
             print("submitting result for:", tile.img_fname)
-            out_queue.put((tile, kps_pts, descs))
+            #print("Result[:30]:\n{}".format(kps_pts[:30]))
+            out_queue.put((tile_id, kps_pts, descs))
 
 
 class MatcherWorker(object):
@@ -106,12 +111,16 @@ class MatcherWorker(object):
             # process the job
             print("Received match job:", match_idx)
             # Find shared bounding box
-            extend_delta = 50 # TODO - should be a parameter
+            #extend_delta = 50 # TODO - should be a parameter
+            extend_delta = 5 # TODO - should be a parameter
             intersection = [max(bbox1[0], bbox2[0]) - extend_delta,
                             min(bbox1[1], bbox2[1]) + extend_delta,
                             max(bbox1[2], bbox2[2]) - extend_delta,
                             min(bbox1[3], bbox2[3]) + extend_delta]
 
+            #print("bbox1: {}".format(bbox1))
+            #print("bbox2: {}".format(bbox2))
+            #print("intersection: {}".format(intersection))
 #             intersection = [max(start_point1[0], start_point2[0]) - extend_delta,
 #                             min(start_point1[0] + img_shape[1], start_point2[0] + img_shape[1]) + extend_delta,
 #                             max(start_point1[1], start_point2[1]) - extend_delta,
@@ -119,27 +128,35 @@ class MatcherWorker(object):
 
             # Send two detector jobs
             print('Submitting job1 to detectors_in_queue')
-            #job1 = (self._matcher_queue, tile1.img_fname, (bbox1[0], bbox1[2]), intersection)
-            job1 = (self._matcher_thread_idx, tile1, (bbox1[0], bbox1[2]), intersection)
+            #job1 = (self._matcher_queue, tile1_id, tile1, (bbox1[0], bbox1[2]), intersection)
+            tile1_id = (tile1.layer, tile1.mfov_index, tile1.tile_index)
+            job1 = (self._matcher_thread_idx, tile1_id, tile1, (bbox1[0], bbox1[2]), intersection)
             self._detectors_in_queue.put(job1)
             print('Submitting job2 to detectors_in_queue')
-            #job2 = (self._matcher_queue, tile2.img_fname, (bbox2[0], bbox2[2]), intersection)
-            job2 = (self._matcher_thread_idx, tile2, (bbox2[0], bbox2[2]), intersection)
+            #job2 = (self._matcher_queue, tile2_id, tile2, (bbox2[0], bbox2[2]), intersection)
+            tile2_id = (tile2.layer, tile2.mfov_index, tile2.tile_index)
+            job2 = (self._matcher_thread_idx, tile2_id, tile2, (bbox2[0], bbox2[2]), intersection)
             self._detectors_in_queue.put(job2)
 
             # fetch the results
             res_a = self._matcher_queue.get()
             res_b = self._matcher_queue.get()
             # res_a = (tile_A, kps_pts_A, descs_A))
-            if res_a[0] == tile1:
+            if res_a[0] == tile1_id:
                 _, kps_pts1, descs1 = res_a
                 _, kps_pts2, descs2 = res_b
             else:
+                assert(res_a[0] == tile2_id)
                 _, kps_pts1, descs1 = res_b
                 _, kps_pts2, descs2 = res_a
 
             # perform the actual matching
             transform_model, filtered_matches = self._matcher.match_and_filter(kps_pts1, descs1, kps_pts2, descs2)
+            #print("Transform_model:\n{}".format(None if transform_model is None else transform_model.get_matrix()))
+            #print("filtered_matches ({}, {}):\n{}".format(tile1.mfov_index, tile2.mfov_index, filtered_matches))
+
+            # TODO - add fake matches in case none were found
+
             self._output_queue.put((match_idx, filtered_matches))
 
             # return the filtered matches (the points for each tile in the global coordinate system)
@@ -172,7 +189,7 @@ class ProcessWrapper(object):
 
     @staticmethod
     def init_and_run(ctor, args, **kwargs):
-        print("ctor:", ctor)
+        #print("ctor:", ctor)
         #print("args:", args[0])
         worker = ctor(*args[0], **kwargs)
         worker.run()
@@ -233,10 +250,10 @@ class Stitcher(object):
         self._matchers_out_queue = mp.Queue(maxsize=matcher_params.get("queue_max_size", 0)) # Used by the manager to collect the matchers results
 
         # Set up the pool of detectors
-        self._detectors = [ThreadWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
-        self._matchers = [ThreadWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
-        #self._detectors = [ProcessWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
-        #self._matchers = [ProcessWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
+        #self._detectors = [ThreadWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
+        #self._matchers = [ThreadWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
+        self._detectors = [ProcessWrapper(DetectorWorker, (self._processes_factory, self._detectors_in_queue, self._detectors_result_queues)) for i in range(detector_threads)]
+        self._matchers = [ProcessWrapper(MatcherWorker, (self._processes_factory, self._matchers_in_queue, self._matchers_out_queue, self._detectors_result_queues[i], self._detectors_in_queue, i)) for i in range(matcher_threads)]
         
 #         # Set up the pools of dethreads (each thread will have its own queue to pass jobs around)
 #         # Set up the queues
@@ -263,8 +280,7 @@ class Stitcher(object):
 # 
 #         #self._detector = FeaturesDetector(conf['detector_type'], **detector_params)
 #         #self._matcher = FeaturesMatcher(self._detector, **matcher_params)
-        optimizer_params = conf.get('optimizer_params', {})
-        #self._optimizer = OptimizerRigid2D(**optimizer_params)
+        self._optimizer = self._processes_factory.create_2d_optimizer()
 
 
 
@@ -418,89 +434,36 @@ class Stitcher(object):
         # fetch all the results from the matchers
         match_results_map = {}
         logger.report_event("Collecting matches results", log_level=logging.INFO)
-        while len(match_results_map) < len(match_jobs):
+        res_match_jobs_counter = 0
+        while res_match_jobs_counter < len(match_jobs):
             match_idx, filtered_matches = self._matchers_out_queue.get()
             tile1, tile2 = match_jobs[match_idx]
-            match_results_map[(tile1.img_fname, tile2.img_fname)] = filtered_matches
-
-        logger.report_event("Starting rigid optimization", log_level=logging.INFO)
-        die
-
-
-
-        overlap_features = [[None]*len(overlap_bboxes), [None]*len(overlap_bboxes)] # The first sub-list will correspond to tiles_lst1, and the second to tiles_lst2
-        for t_basename, bbox_idxs in per_tile_bboxes_idxs.items():
-            assert(len(bbox_idxs) > 0)
- 
-
-
-        logger.report_event("Computing features on overlapping areas...", log_level=logging.INFO)
-        st_time = time.time()
-        overlap_features = [[None]*len(overlap_bboxes), [None]*len(overlap_bboxes)] # The first sub-list will correspond to tiles_lst1, and the second to tiles_lst2
-        extend_delta = 50 # TODO - should be a parameter
-        for t_basename, bbox_idxs in per_tile_bboxes_idxs.items():
-            assert(len(bbox_idxs) > 0)
-            # Read the tile (by another thread)
-           # self._readers_in_queue.put(
-
-            
-                
-        for t1, t2, overlap_bbox in zip(tiles_lst1, tiles_lst2, overlap_bboxes):
-            extended_overlap_bbox = [overlap_bbox[0] - extend_delta, overlap_bbox[1] + extend_delta, overlap_bbox[2] - extend_delta, overlap_bbox[3] + extend_delta] # increase overlap bbox by delta
-            features1 = self._compute_tile_features(t1, extended_overlap_bbox)
-            features2 = self._compute_tile_features(t2, extended_overlap_bbox)
-            #res = pool.apply_async(StackAligner._compute_features, (self._detector, img, i))
-            #pool_results.append(res)
-            #all_features.append(self._detector.detect(img))
-            overlap_features[0].append(features1)
-            overlap_features[1].append(features2)
-            logger.report_event("Overlap between tiles {} {}, found {} and {} features.".format(t1, t2, len(features1[0]), len(features2[0])), log_level=logging.INFO)
-        #for res in pool_results:
-        #    all_features.append(res.get())
-        logger.report_event("Features computation took {} seconds.".format(time.time() - st_time), log_level=logging.INFO)
-
-        # match features of overlapping images
-        # TODO - stopped here
-        logger.report_event("Feature matching...", log_level=logging.INFO)
-        st_time = time.time()
-        #overlaps_filtered_matches = []
-        tile_pairs_matches = {} # A map between two tiles (their url) and a list of all their matched points (world coordinates)
-        tile_pts = defaultdict(list) # a map between a tile (its url) and a list of point lists (the points that are part of tile_pairs_matches)
-        for i, (features1, features2) in enumerate(zip(overlap_features[0], overlap_features[1])):
-            kps1, descs1 = features1
-            kps2, descs2 = features2
-            transform_model, filtered_matches = self._matcher.match_and_filter(kps1, descs1, kps2, descs2)
-            if transform_model is None:
-                # TODO - either use a different approach, or just create random matches
-                logger.report_event("Matching tiles {} -> {}, No filtered matches found".format(tiles_lst1[i], tiles_lst2[i]), log_level=logging.INFO)
-                #overlaps_filtered_matches.append(None)
-                #tile_pairs_matches[tiles_lst1[i].img_fname, tiles_lst2[i].img_fname] = 
+            tile1_unique_idx = (tile1.layer, tile1.mfov_index, tile1.tile_index)
+            tile2_unique_idx = (tile2.layer, tile2.mfov_index, tile2.tile_index)
+            if filtered_matches is None or len(filtered_matches[0]) <= 4: # TODO - make a parameter
+                logger.report_event("Removing no matches for pair: {} -> {}".format(tile1_unique_idx, tile2_unique_idx), log_level=logging.INFO)
             else:
-                logger.report_event("Matching tiles {} -> {}, found {} filtered matches, and the average displacement: {} px".format(tiles_lst1[i], tiles_lst2[i], len(filtered_matches[0]), np.mean(Stitcher._compute_l2_distance(transform_model.apply(filtered_matches[1]), filtered_matches[0]))), log_level=logging.INFO)
-                #overlaps_filtered_matches.append(filtered_matches)
-                tile_pairs_matches[tiles_lst1[i].img_fname, tiles_lst2[i].img_fname] = filtered_matches
-                tile_pts[tiles_lst1[i].img_fname].append(filtered_matches[0])
-                tile_pts[tiles_lst2[i].img_fname].append(filtered_matches[1])
-        logger.report_event("Feature matching took {} seconds.".format(time.time() - st_time), log_level=logging.INFO)
+                match_results_map[(tile1_unique_idx, tile2_unique_idx)] = filtered_matches
+            res_match_jobs_counter += 1
 
-        # Optimize all the matches and get a per-tile transformation
-        logger.report_event("Optimizing transformations...", log_level=logging.INFO)
-        st_time = time.time()
-
-        tile_start_pts = {t.img_fname:np.array([t.bbox[0], t.bbox[2]]) for t in section.tiles()} # a map between a tile (its url) and the point where it starts (the minimal x,y of that tile)
-        optimized_models = self._optimizer.optimize_2d_tiles(tile_pairs_matches, tile_pts, tile_start_pts, "layer {}".format(section.layer))
-        logger.report_event("Optimization took {} seconds.".format(time.time() - st_time), log_level=logging.INFO)
-        
-        # Update the section transforms
+        logger.report_event("Starting optimization", log_level=logging.INFO)
+        # Generate a map between tile and its original estimated location
+        orig_locations = {}
         for tile in section.tiles():
-            tile.set_transform(optimized_models[tile.img_fname])
+            tile_unique_idx = (tile.layer, tile.mfov_index, tile.tile_index)
+            orig_locations[tile_unique_idx] = [tile.bbox[0], tile.bbox[2]]
 
-        # TODO update the section's (and mfovs) bounding boxes
+        optimized_transforms_map = self._optimizer.optimize(orig_locations, match_results_map)
+        logger.report_event("Done optimizing, updating tiles transforms", log_level=logging.INFO)
 
-        #pool.close()
-        #pool.join()
-        logger.report_event("stitch_section ended.", log_level=logging.INFO)
-
+        for tile in section.tiles():
+            tile_unique_idx = (tile.layer, tile.mfov_index, tile.tile_index)
+            if tile_unique_idx not in optimized_transforms_map:
+                # TODO - should remove the tile
+                logger.report_event("Could not find a transformation for tile {} in the optimization result, skipping tile".format(tile_unique_idx), log_level=logging.WARNING)
+            else:
+                tile.set_transform(optimized_transforms_map[tile_unique_idx])
+                print("Mfov {}, transform:\n{}".format(tile.mfov_index, tile.transforms[0].get_matrix()))
 
 
 
