@@ -1,5 +1,6 @@
 from mb_aligner.common.detector import FeaturesDetector
 from mb_aligner.common.matcher import FeaturesMatcher
+from mb_aligner.stitching.optimizer import Optimizer2D
 
 class ProcessesFactory(object):
     '''
