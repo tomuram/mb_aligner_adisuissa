@@ -30,6 +30,8 @@ def render_section(out_fname, section, ds_rate):
         # erode the image and mask
         mfov_image = cv2.erode(mfov_image, np.ones((3,3), np.uint8))
         mfov_mask = cv2.erode(mfov_mask, np.ones((3,3), np.uint8))
+        #mfov_image = cv2.medianBlur(mfov_image, 3)
+        #mfov_mask = cv2.medianBlur(mfov_mask, 3)
 
         # downsample the images
         mfov_image = cv2.resize(mfov_image, None, fx=ds_rate, fy=ds_rate, interpolation=cv2.INTER_CUBIC)
@@ -41,6 +43,7 @@ def render_section(out_fname, section, ds_rate):
         mfov_image[mfov_image > 255] = 255
         mfov_image = mfov_image.astype(np.uint8)
 
+        #mfov_image = 255 - mfov_image
         #cv2.imwrite("mfov_{}.jpg".format(tile.mfov_index), mfov_image)
         #cv2.imwrite("mfov_mask_{}.jpg".format(tile.mfov_index), mfov_mask)
         # place the image using the mask
@@ -64,9 +67,15 @@ if __name__ == '__main__':
     #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/003_S3R1/full_thumbnail_coordinates.txt'
     #section_num = 3
     #out_jpg_fname = './output_stitched_thumbs_Alex_ROI2_w04_W04_H04_ROI2_20180109_16-51-34_003_S3R1.jpg'
+    #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/004_S4R1/full_thumbnail_coordinates.txt'
+    #section_num = 4
+    #out_jpg_fname = './output_stitched_thumbs_Alex_ROI2_w04_W04_H04_ROI2_20180109_16-51-34_004_S4R1.jpg'
     section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w08/W08_H01_ROI2_20171227_00-07-19/010_S10R1/full_thumbnail_coordinates.txt'
     section_num = 10
     out_jpg_fname = './output_stitched_thumbs_Alex_ROI2_w08_W08_H01_ROI2_20171227_00-07-19_010_S10R1.jpg'
+    #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w08/W08_H01_ROI2_20171227_00-07-19/011_S11R1/full_thumbnail_coordinates.txt'
+    #section_num = 11
+    #out_jpg_fname = './output_stitched_thumbs_Alex_ROI2_w08_W08_H01_ROI2_20171227_00-07-19_011_S11R1.jpg'
     conf_fname = '../../conf/conf_thumbs_example.yaml'
     processes_num = 8
 #
@@ -90,7 +99,7 @@ if __name__ == '__main__':
 #    test_detector('/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1', conf_fname, 8, 500)
 
     logger.start_process('main', 'stitcher.py', [section_dir, conf_fname])
-    section = ThumbnailsSection.create_from_full_thumbnail_coordinates(section_dir, section_num)
+    section = ThumbnailsSection.create_from_full_thumbnail_coordinates(section_dir, section_num, processes_num=processes_num)
     conf = Stitcher.load_conf_from_file(conf_fname)
     stitcher = Stitcher(conf)
     stitcher.stitch_section(section) # will stitch and update the section tiles' transformations

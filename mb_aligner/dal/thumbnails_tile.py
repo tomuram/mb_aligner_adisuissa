@@ -60,6 +60,13 @@ class ThumbnailsTile(object):
         for img_fname, img_loc in zip(img_fnames, tiles_locs):
             img = cv2.imread(img_fname, 0)
             assert(img.shape == tiles_size)
+
+#             # normalize and clamp values
+#             img = ((img - np.mean(img))/np.std(img)*40 + 127).astype(np.int)
+#             img[img < 0] = 0
+#             img[img > 255] = 255
+#             img = img.astype(np.uint8)
+
             img_loc = np.floor(img_loc - min_xy_f).astype(np.int)
             mfov_image[img_loc[1]:img_loc[1] + tiles_size[0], img_loc[0]:img_loc[0] + tiles_size[1]] = img
             mfov_mask[img_loc[1]:img_loc[1] + tiles_size[0], img_loc[0]:img_loc[0] + tiles_size[1]] = 255

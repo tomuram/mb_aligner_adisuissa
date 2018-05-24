@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 from mb_aligner.dal.section import Section
 from mb_aligner.dal.thumbnails_tile import ThumbnailsTile
+import multiprocessing as mp
 
 class ThumbnailsSection(object):
     """
@@ -70,7 +71,7 @@ class ThumbnailsSection(object):
 
 
     @classmethod
-    def create_from_full_thumbnail_coordinates(cls, full_thumbnail_coordinates_fname, layer, thumb_tile_size=None):
+    def create_from_full_thumbnail_coordinates(cls, full_thumbnail_coordinates_fname, layer, thumb_tile_size=None, processes_num=1):
         """
         Creates a section from a given full_thumbnail_coordinates filename
         """
@@ -105,10 +106,27 @@ class ThumbnailsSection(object):
             
 
         all_mfovs = {}
-        for mfov_idx in per_mfov_tiles_fnames.keys():
-            print("Creating mfov thumbnails stitched tile: {}".format(mfov_idx))
-            mfov_thumbs_tile = ThumbnailsTile.create_from_input(per_mfov_tiles_fnames[mfov_idx], thumb_tile_size, per_mfov_tiles_locs[mfov_idx], layer, mfov_idx)
-            all_mfovs[mfov_idx] = mfov_thumbs_tile
+        if processes_num == 1:
+            for mfov_idx in per_mfov_tiles_fnames.keys():
+                print("Creating mfov thumbnails stitched tile: {}".format(mfov_idx))
+                mfov_thumbs_tile = ThumbnailsTile.create_from_input(per_mfov_tiles_fnames[mfov_idx], thumb_tile_size, per_mfov_tiles_locs[mfov_idx], layer, mfov_idx)
+                all_mfovs[mfov_idx] = mfov_thumbs_tile
+        else:
+            pool = mp.Pool(processes=processes_num)
+
+            pool_results = []
+            for mfov_idx in per_mfov_tiles_fnames.keys():
+                print("Creating mfov thumbnails stitched tile: {}".format(mfov_idx))
+                res = pool.apply_async(ThumbnailsTile.create_from_input, (per_mfov_tiles_fnames[mfov_idx], thumb_tile_size, per_mfov_tiles_locs[mfov_idx], layer, mfov_idx))
+                pool_results.append(res)
+
+            for res in pool_results:
+                mfov_thumbs_tile = res.get()
+                all_mfovs[mfov_thumbs_tile.mfov_index] = mfov_thumbs_tile
+ 
+            pool.close()
+            pool.join()
+
         return ThumbnailsSection(all_mfovs, kwargs={'layer':layer})
 
 
