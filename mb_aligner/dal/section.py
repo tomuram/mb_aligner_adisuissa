@@ -6,6 +6,7 @@ from mb_aligner.dal.mfov import Mfov
 import csv
 import numpy as np
 import cv2
+import subprocess
 
 class Section(object):
     """
@@ -45,37 +46,40 @@ class Section(object):
         images = []
         x = []
         y = []
-        with open(input_file, 'r') as csvfile:
-            data_reader = csv.reader(csvfile, delimiter='\t')
-            for row in data_reader:
-                img_fname = row[0].replace('\\', '/')
-                # Make sure that the mfov appears in the relevant mfovs
-                if not (img_fname.split('/')[0]).isdigit():
-                    # skip the row
-                    continue
-                img_sec_mfov_beam = '_'.join(img_fname.split('/')[-1].split('_')[:3])
-                # Make sure that no duplicates appear
-                if img_sec_mfov_beam not in images_dict.keys():
-                    images.append(img_fname)
-                    images_dict[img_sec_mfov_beam] = len(images) - 1
-                    cur_x = float(row[1])
-                    cur_y = float(row[2])
-                    x.append(cur_x)
-                    y.append(cur_y)
-                else:
-                    # Either the image is duplicated, or a newer version was taken,
-                    # so make sure that the newer version is used
-                    prev_img_idx = images_dict[img_sec_mfov_beam]
-                    prev_img = images[prev_img_idx]
-                    prev_img_date = prev_img.split('/')[-1].split('_')[-1]
-                    curr_img_date = img_fname.split('/')[-1].split('_')[-1]
-                    if curr_img_date > prev_img_date:
-                        images[prev_img_idx] = img_fname
-                        images_dict[img_sec_mfov_beam] = img_fname
-                        cur_x = float(row[1])
-                        cur_y = float(row[2])
-                        x[prev_img_idx] = cur_x
-                        y[prev_img_idx] = cur_y
+        # Instead of just opening the file, opening the sorted file, so the tiles will be arranged
+        sorted_lines = subprocess.check_output('cat {} | sort'.format(input_file), shell=True)
+        assert(len(sorted_lines) > 0)
+        sorted_lines = sorted_lines.decode('ascii').split('\r\n')
+        for line in sorted_lines:
+            line_data = line.split('\t')
+            img_fname = line_data[0].replace('\\', '/')
+            # Make sure that the mfov appears in the relevant mfovs
+            if not (img_fname.split('/')[0]).isdigit():
+                # skip the row
+                continue
+            img_sec_mfov_beam = '_'.join(img_fname.split('/')[-1].split('_')[:3])
+            # Make sure that no duplicates appear
+            if img_sec_mfov_beam not in images_dict.keys():
+                images.append(img_fname)
+                images_dict[img_sec_mfov_beam] = len(images) - 1
+                cur_x = float(line_data[1])
+                cur_y = float(line_data[2])
+                x.append(cur_x)
+                y.append(cur_y)
+            else:
+                # Either the image is duplicated, or a newer version was taken,
+                # so make sure that the newer version is used
+                prev_img_idx = images_dict[img_sec_mfov_beam]
+                prev_img = images[prev_img_idx]
+                prev_img_date = prev_img.split('/')[-1].split('_')[-1]
+                curr_img_date = img_fname.split('/')[-1].split('_')[-1]
+                if curr_img_date > prev_img_date:
+                    images[prev_img_idx] = img_fname
+                    images_dict[img_sec_mfov_beam] = img_fname
+                    cur_x = float(line_data[1])
+                    cur_y = float(line_data[2])
+                    x[prev_img_idx] = cur_x
+                    y[prev_img_idx] = cur_y
 
         return images, np.array(x), np.array(y)
 
