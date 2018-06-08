@@ -283,12 +283,14 @@ class Stitcher(object):
         self._optimizer = self._processes_factory.create_2d_optimizer()
 
 
+    def __del__(self):
+        self.close()
 
     def close(self):
 
         print("Closing all matchers")
-        for q in self._matchers_in_queue:
-            q.put(None)
+        for i in range(len(self._matchers)):
+            self._matchers_in_queue.put(None)
         for m in self._matchers:
             m.join()
         print("Closing all detectors")
@@ -516,6 +518,8 @@ if __name__ == '__main__':
     #section_num = 181
     #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/003_S3R1/full_image_coordinates.txt'
     #section_num = 3
+    #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w08/W08_H01_ROI2_20171227_00-07-19/010_S10R1/full_image_coordinates.txt'
+    #section_num = 10
     conf_fname = '../../conf/conf_example.yaml'
     processes_num = 8
     out_fname = './output_stitched_sec{}.json'.format(section_num)
@@ -545,8 +549,13 @@ if __name__ == '__main__':
     stitcher = Stitcher(conf)
     stitcher.stitch_section(section) # will stitch and update the section tiles' transformations
 
-    # TODO - output the section
+    # output the section
+    out_tilespec = section.tilespec
+    import json
+    with open(out_fname, 'wt') as out_f:
+        json.dump(out_tilespec, out_f, sort_keys=True, indent=4)
 
+    del stitcher
 
     logger.end_process('main ending', rh_logger.ExitCode(0))
 
