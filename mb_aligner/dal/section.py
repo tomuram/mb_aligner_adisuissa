@@ -34,7 +34,7 @@ class Section(object):
         """
         per_mfov_tiles = defaultdict(list)
         for tile_ts in tilespec:
-            per_mfov_tiles[tile_ts["mfov"]].append(Tile.create_from_tilespec(tiles_ts))
+            per_mfov_tiles[tile_ts["mfov"]].append(Tile.create_from_tilespec(tile_ts))
         layer = int(tilespec[0]["layer"])
         all_mfovs = {mfov_idx:Mfov(mfov_tiles_list) for mfov_idx, mfov_tiles_list in per_mfov_tiles.items()}
         return Section(all_mfovs, kwargs={'layer':layer})
