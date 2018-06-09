@@ -28,6 +28,7 @@ class FeaturesMatcher(object):
         self._params["regularizer_lambda"] = kwargs.get("regularizer_lambda", 0.1)
         self._params["regularizer_model_index"] = kwargs.get("regularizer_model_index", 1)
 
+        self._params["best_k_matches"] = kwargs.get("best_k_matches", 0) # 0 = all of the matches
 
     def match(self, features_kps1, features_descs1, features_kps2, features_descs2):
         if features_descs1 is None or len(features_descs1) < self._params["min_features_num"] or features_descs2 is None or len(features_descs2) < self._params["min_features_num"]:
@@ -60,7 +61,7 @@ class FeaturesMatcher(object):
         if match_points is None:
             return None, None
 
-        model, filtered_matches = ransac.filter_matches(match_points, match_points, self._params['model_index'],
+        model, filtered_matches, mask = ransac.filter_matches(match_points, match_points, self._params['model_index'],
                     self._params['iterations'], self._params['max_epsilon'], self._params['min_inlier_ratio'],
                     self._params['min_num_inlier'], self._params['max_trust'], self._params['det_delta'], self._params['max_stretch'])
 
@@ -68,7 +69,7 @@ class FeaturesMatcher(object):
             return None, None
 
         if self._params["use_regularizer"]:
-            regularizer_model, _ = ransac.filter_matches(match_points, match_points, self._params['regularizer_model_index'],
+            regularizer_model, _, _ = ransac.filter_matches(match_points, match_points, self._params['regularizer_model_index'],
                         self._params['iterations'], self._params['max_epsilon'], self._params['min_inlier_ratio'],
                         self._params['min_num_inlier'], self._params['max_trust'], self._params['det_delta'], self._params['max_stretch'])
 
@@ -77,6 +78,11 @@ class FeaturesMatcher(object):
 
             result = model.get_matrix() * (1 - self._params["regularizer_lambda"]) + regularizer_model.get_matrix() * self._params["regularizer_lambda"]
             model = models.AffineModel(result)
+
+        if self._params['best_k_matches'] > 0 and self._params['best_k_matches'] < len(filtered_matches[0]):
+            # Only keep the best K matches out of the filtered matches
+            best_k_matches_idxs = np.argpartition(match_points[2][mask], -self._params['best_k_matches'])[-self._params['best_k_matches']:]
+            filtered_matches = np.array([match_points[0][mask][best_k_matches_idxs], match_points[1][mask][best_k_matches_idxs]])
 
         return model, filtered_matches
 

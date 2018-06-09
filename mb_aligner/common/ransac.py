@@ -335,7 +335,7 @@ def filter_matches(sample_matches, test_matches, target_model_type, iterations, 
 
     if not robust_filter:
         inliers = np.array([test_matches[0][inliers_mask], test_matches[1][inliers_mask]])
-        return model, inliers
+        return model, inliers, inliers_mask
 
     # Apply further filtering
     if inliers_mask is not None:
@@ -353,7 +353,9 @@ def filter_matches(sample_matches, test_matches, target_model_type, iterations, 
     '''
     if filtered_matches is None:
         logger.report_event("post-ransac-filter matches count: 0", log_level=logging.DEBUG)
+        return None, None, None
     else:
         logger.report_event("post-ransac-filter matches count: {}".format(filtered_matches.shape[1]), log_level=logging.DEBUG)
-    return new_model, filtered_matches
+        inliers_mask[inliers_mask == True][filtered_inliers_mask == False] = False # clear everrything that's not set by filtered_inliers_mask
+        return new_model, filtered_matches, inliers_mask
 
