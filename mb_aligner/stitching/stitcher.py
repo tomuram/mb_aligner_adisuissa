@@ -313,9 +313,13 @@ class Stitcher(object):
         Loads a given configuration file from a yaml file
         '''
         print("Using config file: {}.".format(conf_fname))
+        if conf_fname is None:
+            return {}
         with open(conf_fname, 'r') as stream:
             conf = yaml.load(stream)
             conf = conf['stitching']
+        
+        logger.report_event("loaded configuration: {}".format(conf), log_level=logging.INFO)
         return conf
 
 
@@ -512,14 +516,14 @@ def test_detector(section_dir, conf_fname, workers_num, files_num):
 
 
 if __name__ == '__main__':
-    section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
-    section_num = 10
+    #section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
+    #section_num = 10
     #section_dir = '/n/lichtmanfs2/100um_Sept2017/EM/w01h03/100umsept2017_20170912_17-52-13/181_S181R1/full_image_coordinates.txt'
     #section_num = 181
     #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/003_S3R1/full_image_coordinates.txt'
     #section_num = 3
-    #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w08/W08_H01_ROI2_20171227_00-07-19/010_S10R1/full_image_coordinates.txt'
-    #section_num = 10
+    section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w08/W08_H01_ROI2_20171227_00-07-19/010_S10R1/full_image_coordinates.txt'
+    section_num = 8_10
     conf_fname = '../../conf/conf_example.yaml'
     processes_num = 8
     out_fname = './output_stitched_sec{}.json'.format(section_num)

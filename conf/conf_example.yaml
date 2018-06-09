@@ -30,6 +30,7 @@ stitching:
         #use_regularizer: True
         #regularizer_model_index: 1
         #regularizer_lambda: 0.1
+        best_k_matches: 30
 
     optimizer_type: RIGID
     optimizer_params:
