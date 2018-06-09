@@ -1,6 +1,6 @@
 from enum import Enum
-from optimize_translation_damping_2d_tiles import TranslationDamping2DOptimizer
-from optimize_rigid_2d_tiles import Rigid2DOptimizer
+from mb_aligner.stitching.optimize_translation_damping_2d_tiles import TranslationDamping2DOptimizer
+from mb_aligner.stitching.optimize_rigid_2d_tiles import Rigid2DOptimizer
 
 class Optimizer2D(object):
 
