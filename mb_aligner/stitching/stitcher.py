@@ -111,8 +111,9 @@ class MatcherWorker(object):
             # process the job
             print("Received match job:", match_idx)
             # Find shared bounding box
-            #extend_delta = 50 # TODO - should be a parameter
-            extend_delta = 5 # TODO - should be a parameter
+            extend_delta = 50 # TODO - should be a parameter
+            #extend_delta = 100 # TODO - should be a parameter
+            #extend_delta = 5 # TODO - should be a parameter
             intersection = [max(bbox1[0], bbox2[0]) - extend_delta,
                             min(bbox1[1], bbox2[1]) + extend_delta,
                             max(bbox1[2], bbox2[2]) - extend_delta,
@@ -156,6 +157,26 @@ class MatcherWorker(object):
             #print("filtered_matches ({}, {}):\n{}".format(tile1.mfov_index, tile2.mfov_index, filtered_matches))
 
             # TODO - add fake matches in case none were found
+            if filtered_matches is None and tile1.mfov_index == tile2.mfov_index:
+            #if filtered_matches is None:
+                logger.report_event("Adding fake matches between: {} and {}".format((tile1.mfov_index, tile1.tile_index), (tile2.mfov_index, tile2.tile_index)), log_level=logging.INFO)
+                intersection = [max(bbox1[0], bbox2[0]),
+                                min(bbox1[1], bbox2[1]),
+                                max(bbox1[2], bbox2[2]),
+                                min(bbox1[3], bbox2[3])]
+                intersection_center = np.array([intersection[0] + intersection[1], intersection[2] + intersection[3]]) * 0.5
+                fake_match_points_global = np.array([
+                        [intersection_center[0] + intersection[0] - 2, intersection_center[1] + intersection[2] - 2],
+                        [intersection_center[0] + intersection[1] + 4, intersection_center[1] + intersection[2] - 4],
+                        [intersection_center[0] + intersection[0] + 2, intersection_center[1] + intersection[3] - 2],
+                        [intersection_center[0] + intersection[1] - 4, intersection_center[1] + intersection[3] - 6]
+                    ]) * 0.5
+                filtered_matches = np.array([
+                        fake_match_points_global - np.array([bbox1[0], bbox1[2]]),
+                        fake_match_points_global - np.array([bbox2[0], bbox2[2]])
+                    ])
+                #print("filtered_matches: {}".format(filtered_matches))
+            #print("filtered_matches.shape: {}".format(filtered_matches.shape))
 
             self._output_queue.put((match_idx, filtered_matches))
 
@@ -446,7 +467,7 @@ class Stitcher(object):
             tile1, tile2 = match_jobs[match_idx]
             tile1_unique_idx = (tile1.layer, tile1.mfov_index, tile1.tile_index)
             tile2_unique_idx = (tile2.layer, tile2.mfov_index, tile2.tile_index)
-            if filtered_matches is None or len(filtered_matches[0]) <= 4: # TODO - make a parameter
+            if filtered_matches is None or len(filtered_matches[0]) <= 3: # TODO - make a parameter
                 logger.report_event("Removing no matches for pair: {} -> {}".format(tile1_unique_idx, tile2_unique_idx), log_level=logging.INFO)
             else:
                 match_results_map[(tile1_unique_idx, tile2_unique_idx)] = filtered_matches
