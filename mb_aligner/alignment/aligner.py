@@ -1,33 +1,56 @@
-#from rh_renderer import models
-#from rh_aligner.common import ransac
 import sys
 import os
 import glob
 import yaml
 import cv2
+import ujson
 import numpy as np
 from rh_logger.api import logger
 import logging
 import rh_logger
 import time
-from detector import FeaturesDetector
-from matcher import FeaturesMatcher
+from mb_aligner.dal.section import Section
 import multiprocessing as mp
+from multiprocessing.pool import ThreadPool # for debug ?
+import threading
+#import queue
+from collections import defaultdict
+import tinyr
+from mb_aligner.common.section_cache import SectionCacheProcesses as SectionCache
+import importlib
+
 
 class StackAligner(object):
 
-    def __init__(self, conf, processes_num=1):
+    def __init__(self, conf):
         self._conf = conf
 
-        # TODO Initialize the detector, amtcher and optimizer objects
-        detector_params = conf.get('detector_params', {})
-        matcher_params = conf.get('matcher_params', {})
-        self._detector = FeaturesDetector(conf['detector_type'], **detector_params)
-        self._matcher = FeaturesMatcher(self._detector, **matcher_params)
+        #self._processes_factory = ProcessesFactory(self._conf)
+        self._processes_num = conf.get('processes_num', 1)
+        assert(self._processes_num > 0)
+        self._processes_pool = mp.Pool(processes=self._processes_num)
+        #self._processes_pool = ThreadPool(processes=self._processes_num)
+        # Initialize the pre_matcher, block_matcher and optimization algorithms
+        pre_match_type = conf.get('pre_match_type')
+        pre_match_params = conf.get('pre_match_params', {})
+        self._pre_matcher = StackAligner.load_plugin(pre_match_type)(**pre_match_params)
 
-        self._processes_num = processes_num
+
+        self._compare_distance = conf.get('compare_distance', 1)
+
+        self._avoid_fine_grain_matching = conf.get('avoid_fine_grain_matching', False)
 
 
+    def __del__(self):
+        self._processes_pool.close()
+        self._processes_pool.join()
+
+    @staticmethod
+    def load_plugin(class_full_name):
+        package, class_name = class_full_name.rsplit('.', 1)
+        plugin_module = importlib.import_module(package)
+        plugin_class = getattr(plugin_module, class_name)
+        return plugin_class
 
     @staticmethod
     def read_imgs(folder):
@@ -43,8 +66,13 @@ class StackAligner(object):
         Loads a given configuration file from a yaml file
         '''
         print("Using config file: {}.".format(conf_fname))
+        if conf_fname is None:
+            return {}
         with open(conf_fname, 'r') as stream:
             conf = yaml.load(stream)
+            conf = conf['alignment']
+        
+        logger.report_event("loaded configuration: {}".format(conf), log_level=logging.INFO)
         return conf
 
 
@@ -54,105 +82,117 @@ class StackAligner(object):
         s = np.sum(delta**2, axis=1)
         return np.sqrt(s)
 
-    @staticmethod
-    def _compute_features(detector, img, i):
-        result = detector.detect(img)
-        logger.report_event("Img {}, found {} features.".format(i, len(result[0])), log_level=logging.INFO)
-        return result
 
     @staticmethod
-    def _match_features(features_result1, features_result2, i, j):
-        transform_model, filtered_matches = self._matcher.match_and_filter(*features_result1, *features_result2)
-        assert(transform_model is not None)
-        transform_matrix = transform_model.get_matrix()
-        logger.report_event("Imgs {} -> {}, found the following transformations\n{}\nAnd the average displacement: {} px".format(i, j, transform_matrix, np.mean(StackAligner._compute_l2_distance(transform_model.apply(filtered_matches[1]), filtered_matches[0]))), log_level=logging.INFO)
-        return transform_matrix
- 
-
-    def align_imgs(self, imgs):
+    def _create_section_rtree(section):
         '''
-        Receives a stack of images to align and aligns that stack using the first image as an anchor
+        Receives a section, and returns an rtree of all the section's tiles bounding boxes
         '''
+        tiles_rtree = tinyr.RTree(interleaved=False, max_cap=5, min_cap=2)
+        # Insert all tiles bounding boxes to an rtree
+        for t in section.tiles():
+            bbox = t.bbox
+            # using the (x_min, x_max, y_min, y_max) notation
+            tiles_rtree.insert(t, bbox)
 
-        pool = mp.Pool(processes=processes_num)
-
-        # Compute features
-        logger.start_process('align_imgs', 'aligner.py', [len(imgs), self._conf])
-        logger.report_event("Computing features...", log_level=logging.INFO)
-        st_time = time.time()
-        all_features = []
-        pool_results = []
-        for i, img in enumerate(imgs):
-            res = pool.apply_async(StackAligner._compute_features, (self._detector, img, i))
-            pool_results.append(res)
-            #all_features.append(self._detector.detect(img))
-            #logger.report_event("Img {}, found {} features.".format(i, len(all_features[-1][0])), log_level=logging.INFO)
-        for res in pool_results:
-            all_features.append(res.get())
-        logger.report_event("Features computation took {} seconds.".format(time.time() - st_time), log_level=logging.INFO)
-
-        # match features of adjacent images
-        logger.report_event("Pair-wise feature mathcing...", log_level=logging.INFO)
-        st_time = time.time()
-        pairwise_transforms = []
-        for i in range(len(imgs) - 1):
-            transform_model, filtered_matches = self._matcher.match_and_filter(*all_features[i + 1], *all_features[i])
-            assert(transform_model is not None)
-            transform_matrix = transform_model.get_matrix()
-            pairwise_transforms.append(transform_matrix)
-            logger.report_event("Imgs {} -> {}, found the following transformations\n{}\nAnd the average displacement: {} px".format(i, i+1, transform_matrix, np.mean(StackAligner._compute_l2_distance(transform_model.apply(filtered_matches[1]), filtered_matches[0]))), log_level=logging.INFO)
-        logger.report_event("Feature matching took {} seconds.".format(time.time() - st_time), log_level=logging.INFO)
-
-        # Compute the per-image transformation (all images will be aligned to the first section)
-        logger.report_event("Computing transformations...", log_level=logging.INFO)
-        st_time = time.time()
-        transforms = []
-        cur_transform = np.eye(3)
-        transforms.append(cur_transform)
-
-        for pair_transform in pairwise_transforms:
-            cur_transform = np.dot(cur_transform, pair_transform)
-            transforms.append(cur_transform)
-        logger.report_event("Transformations computation took {} seconds.".format(time.time() - st_time), log_level=logging.INFO)
-
-        assert(len(imgs) == len(transforms))
-
-        pool.close()
-        pool.join()
-
-        logger.end_process('align_imgs ending', rh_logger.ExitCode(0))
-        return transforms
-
+        return tiles_rtree
 
 
 
     @staticmethod
-    def align_img_files(imgs_dir, conf, processes_num):
-        # Read the files
-        _, imgs = StackAligner.read_imgs(imgs_dir)
+    def _find_overlapping_tiles_gen(section):
+        '''
+        Receives a section, and yields triplets of (tile1, tile2, overlap_bbox ())
+        '''
+        tiles_rtree = Stitcher._create_section_rtree(section)
+        # Iterate over the section tiles, and for each tile find all of its overlapping tiles
+        for t in section.tiles():
+            bbox = t.bbox
+            rect_res = tiles_rtree.search(bbox)
+            for overlap_t in rect_res:
+                # We want to create a directed comparison (each tile with tiles that come after it in a lexicographical order)
+                if overlap_t.mfov_index > t.mfov_index or (overlap_t.mfov_index == t.mfov_index and overlap_t.tile_index > t.tile_index):
+                    yield t, overlap_t
+#                     # Compute overlap area
+#                     overlap_bbox = overlap_t.bbox
+#                     intersection = [max(bbox[0], overlap_bbox[0]),
+#                                     min(bbox[1], overlap_bbox[1]),
+#                                     max(bbox[2], overlap_bbox[2]),
+#                                     min(bbox[3], overlap_bbox[3])]
+# 
+#                     yield t, overlap_t, intersection
+            
 
-        aligner = StackAligner(conf, processes_num)
-        return aligner.align_imgs(imgs)
+    def align_sections(self, sections):
+        '''
+        Receives a list of sections that were already stitched and need to be registered into a single volume.
+        '''
+
+        logger.report_event("align_sections starting.", log_level=logging.INFO)
+
+        # for each pair of neighboring sections (up to compare_distance distance)
+        pre_match_results = {}
+        sec_caches = defaultdict(SectionCache)
+        for sec1_idx, sec1 in enumerate(sections):
+            for j in range(1, self._compare_distance + 1):
+                sec2_idx = sec1_idx + j
+                if sec2_idx >= len(sections):
+                    break
+
+                sec2 = sections[sec2_idx]
+
+                logger.report_event("Performing pre-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
+                # Result will be a map between mfov index in sec1, and (the model and filtered matches to section 2)
+                pre_match_results[sec1_idx, sec2_idx] = self._pre_matcher.pre_match_sections(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], self._processes_pool)
+        
+                if not self._avoid_fine_grain_matching:
+                    # Perform block matching
+                    logger.report_event("Performing block matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
+
+
+        if self._avoid_fine_grain_matching:
+            fine_match_results = pre_match_results
+
+        # optimize the matches
+        logger.report_event("Optimizing the matches...", log_level=logging.INFO)
+
 
 
 if __name__ == '__main__':
-    imgs_dir = '/n/coxfs01/paragt/Adi/R0/images_margin'
-    conf_fname = '../conf_example.yaml'
-    out_path = './output_imgs'
-    processes_num = 8
+    secs_ts_fnames = [
+        '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_010_S10R1.json',
+        '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_011_S11R1.json'
+    ]
+    out_folder = './output_aligned_ECS_test9_cropped'
+    conf_fname = '../../conf/conf_example.yaml'
 
+
+    logger.start_process('main', 'aligner.py', [secs_ts_fnames, conf_fname])
     conf = StackAligner.load_conf_from_file(conf_fname)
-    transforms = StackAligner.align_img_files(imgs_dir, conf, processes_num)
+    logger.report_event("Loading sections", log_level=logging.INFO)
+    sections = []
+    for ts_fname in secs_ts_fnames:
+        with open(ts_fname, 'rt') as in_f:
+            tilespec = ujson.load(in_f)
+        sections.append(Section.create_from_tilespec(tilespec))
+    logger.report_event("Initializing aligner", log_level=logging.INFO)
+    aligner = StackAligner(conf)
+    logger.report_event("Aligning sections", log_level=logging.INFO)
+    aligner.align_sections(sections) # will align and update the section tiles' transformations
 
-    # Save the transforms to a temp output folder
-    if not os.path.exists(out_path):
-        os.makedirs(out_path)
 
-    print('Writing output to: {}'.format(out_path))
-    img_fnames, imgs = StackAligner.read_imgs(imgs_dir)
-    for img_fname, img, transform in zip(img_fnames, imgs, transforms):
-        # assumption: the output image shape will be the same as the input image
-        out_fname = os.path.join(out_path, os.path.basename(img_fname))
-        img_transformed = cv2.warpAffine(img, transform[:2,:], (img.shape[1], img.shape[0]), flags=cv2.INTER_AREA)
-        cv2.imwrite(out_fname, img_transformed)
+    die
+    if not os.path.exists(out_folder):
+        os.makedirs(out_folder)
+
+    logger.report_event("Writing output sections", log_level=logging.INFO)
+    for section, in_ts_fname in zip(sections, secs_ts_fnames):
+        out_ts_fname = os.path.join(out_folder, "{}_{}".format(str(section.layer).zfill(4), os.path.basename(in_ts_fname)))
+        # Save the transforms to file
+        print('Writing output to: {}'.format(out_ts_fname))
+        section.save_as_json(out_ts_fname)
+
+    del aligner
+
+    logger.end_process('main ending', rh_logger.ExitCode(0))
 
