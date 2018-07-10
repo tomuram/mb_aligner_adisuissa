@@ -2,6 +2,9 @@ import argparse
 import sys
 from mb_aligner.stitching.stitcher import Stitcher
 from mb_aligner.dal.section import Section
+from rh_logger.api import logger
+import logging
+import rh_logger
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
@@ -13,13 +16,16 @@ def parse_args(args=None):
     parser.add_argument("-c", "--conf_fname", metavar="conf_name",
                         help="The configuration file (yaml). (default: None)",
                         default=None)
+    parser.add_argument("-s", "--sec_num", metavar="sec_num", type=int,
+                        help="The section number. (default: 1)",
+                        default=1)
+    
     return parser.parse_args(args)
 
 def run_stitcher(args):
     # Make up a section number
-    section_num = 10
 
-    section = Section.create_from_full_image_coordinates(args.images_coords_file, section_num)
+    section = Section.create_from_full_image_coordinates(args.images_coords_file, args.sec_num)
     conf = Stitcher.load_conf_from_file(args.conf_fname)
     stitcher = Stitcher(conf)
     stitcher.stitch_section(section) # will stitch and update the section
@@ -32,6 +38,8 @@ def run_stitcher(args):
 if __name__ == '__main__':
     args = parse_args()
 
+    logger.start_process('main', 'stitch_2d.py', [args])
     run_stitcher(args)
+    logger.end_process('main ending', rh_logger.ExitCode(0))
 
 
