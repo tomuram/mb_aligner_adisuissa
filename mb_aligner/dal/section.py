@@ -17,12 +17,9 @@ class Section(object):
         self._mfovs_dict = mfovs_dict
 
         # Initialize default values
-        self._layer = None
+        self._layer = kwargs.get("layer", None)
 
         # initialize values using kwargs
-        if len(kwargs) > 0:
-            if "layer" in kwargs:
-                self._layer = kwargs["layer"]
         #elif self._mfovs_dict is not None and len(self._mfovs_dict) > 0:
         #    self._layer = self._mfovs_dict.values()[0].layer
             
@@ -37,7 +34,7 @@ class Section(object):
             per_mfov_tiles[tile_ts["mfov"]].append(Tile.create_from_tilespec(tile_ts))
         layer = int(tilespec[0]["layer"])
         all_mfovs = {mfov_idx:Mfov(mfov_tiles_list) for mfov_idx, mfov_tiles_list in per_mfov_tiles.items()}
-        return Section(all_mfovs, kwargs={'layer':layer})
+        return Section(all_mfovs, layer=layer)
 
     @classmethod
     def _parse_coordinates_file(cls, input_file):
@@ -47,7 +44,7 @@ class Section(object):
         x = []
         y = []
         # Instead of just opening the file, opening the sorted file, so the tiles will be arranged
-        sorted_lines = subprocess.check_output('cat {} | sort'.format(input_file), shell=True)
+        sorted_lines = subprocess.check_output('cat "{}" | sort'.format(input_file), shell=True)
         assert(len(sorted_lines) > 0)
         sorted_lines = sorted_lines.decode('ascii').split('\r\n')
         for line in sorted_lines:
@@ -146,6 +143,12 @@ class Section(object):
         """
         with open(out_fname, 'w') as out_f:
             json.dump(self.tilespec, out_f, sort_keys=True, indent=4)
+
+    def get_mfov(self, mfov_idx):
+        '''
+        Returns the mfov of the given mfov_idx
+        '''
+        return self._mfovs_dict[mfov_idx]
 
     def mfovs(self):
         '''

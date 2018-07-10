@@ -2,6 +2,7 @@ import numpy as np
 import os
 import json
 import cv2
+from rh_renderer import models
 
 class Tile(object):
     """
@@ -20,6 +21,7 @@ class Tile(object):
         self._mfov_idx = None
         self._tile_idx = None
         self._transforms_modelspecs = []
+        self._transforms = None
 
         # initialize values using kwargs
         if len(kwargs) > 0:
@@ -149,7 +151,7 @@ class Tile(object):
         Returns the transformations that need to be applied to the tile
         """
         if self._transforms is None:
-            self._transforms = [models.from_tilespec(ts_transform) for ts_transform in self._transforms_modelspecs]
+            self._transforms = [models.Transforms.from_tilespec(ts_transform) for ts_transform in self._transforms_modelspecs]
         return self._transforms
 
     def _load(self):
@@ -164,7 +166,7 @@ class Tile(object):
         """
         self._transforms_modelspecs.append(modelspec)
         if self._transforms is not None:
-            self._transforms.append(models.from_tilespec(ts_transform))
+            self._transforms.append(models.Transforms.from_tilespec(ts_transform))
 
     def add_transform(self, transform):
         """

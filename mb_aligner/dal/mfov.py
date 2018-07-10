@@ -97,3 +97,13 @@ class Mfov(object):
         '''
         for tile in self._tiles:
             yield tile
+
+    def get_tile(self, tile_idx):
+        '''
+        Returns the tile with the given tile_idx
+        '''
+        for t in self.tiles():
+            if t.tile_index == tile_idx:
+                return t
+        return None
+
