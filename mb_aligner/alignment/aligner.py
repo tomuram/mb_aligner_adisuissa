@@ -17,6 +17,7 @@ import threading
 from collections import defaultdict
 import tinyr
 from mb_aligner.common.section_cache import SectionCacheProcesses as SectionCache
+from mb_aligner.alignment.mesh_pts_model_exporter import MeshPointsModelExporter
 import importlib
 
 
@@ -35,15 +36,49 @@ class StackAligner(object):
         pre_match_params = conf.get('pre_match_params', {})
         self._pre_matcher = StackAligner.load_plugin(pre_match_type)(**pre_match_params)
 
+        fine_match_type = conf.get('fine_match_type', None)
+        self._fine_matcher = None
+        if fine_match_type is not None:
+            fine_match_params = conf.get('fine_match_params', {})
+            self._fine_matcher = StackAligner.load_plugin(fine_match_type)(**fine_match_params)
 
+        optimizer_type = conf.get('optimizer_type')
+        optimizer_params = conf.get('optimizer_params', {})
+        self._optimizer = StackAligner.load_plugin(optimizer_type)(**optimizer_params)
+
+        # initialize other values
         self._compare_distance = conf.get('compare_distance', 1)
+        self._work_dir = conf.get('work_dir', '3d_work_dir')
+        self._output_dir = conf.get('output_dir', '3d_output_dir')
 
-        self._avoid_fine_grain_matching = conf.get('avoid_fine_grain_matching', False)
+        self._create_directories()
+
+
 
 
     def __del__(self):
         self._processes_pool.close()
         self._processes_pool.join()
+
+    def _create_directories(self):
+        def create_dir(dir_name):
+            if not os.path.exists(dir_name):
+                os.makedirs(dir_name)
+
+        create_dir(self._work_dir)
+        self._pre_matches_dir = os.path.join(self._work_dir, 'pre_matches')
+        create_dir(self._pre_matches_dir)
+        self._fine_matches_dir = os.path.join(self._work_dir, 'fine_matches')
+        create_dir(self._fine_matches_dir)
+        self._post_opt_dir = os.path.join(self._work_dir, 'post_optimization_{}'.format(os.path.basename(self._output_dir)))
+        create_dir(self._post_opt_dir)
+        create_dir(self._output_dir)
+            
+
+    @staticmethod
+    def _read_directory(in_dir):
+        fnames_set = set(glob.glob(os.path.join(in_dir, '*')))
+        return fnames_set
 
     @staticmethod
     def load_plugin(class_full_name):
@@ -130,8 +165,15 @@ class StackAligner(object):
 
         logger.report_event("align_sections starting.", log_level=logging.INFO)
 
+        layout = {}
+        layout['sections'] = sections
+        layout['neighbors'] = defaultdict(set)
+
+        # TODO - read the intermediate results directories (so we won't recompute steps)
+
         # for each pair of neighboring sections (up to compare_distance distance)
         pre_match_results = {}
+        fine_match_results = {}
         sec_caches = defaultdict(SectionCache)
         for sec1_idx, sec1 in enumerate(sections):
             for j in range(1, self._compare_distance + 1):
@@ -141,27 +183,69 @@ class StackAligner(object):
 
                 sec2 = sections[sec2_idx]
 
+                # TODO - check if the pre-match was already computed
                 logger.report_event("Performing pre-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
                 # Result will be a map between mfov index in sec1, and (the model and filtered matches to section 2)
                 pre_match_results[sec1_idx, sec2_idx] = self._pre_matcher.pre_match_sections(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], self._processes_pool)
+
+                # Make sure that there are pre-matches between the two sections
+                assert(np.any([model is not None for (model, _) in pre_match_results[sec1_idx, sec2_idx].values()]))
+
         
-                if not self._avoid_fine_grain_matching:
+                if self._fine_matcher is None:
+                    layout['neighbors'][sec1_idx].add(sec2_idx)
+                    layout['neighbors'][sec2_idx].add(sec1_idx)
+                    # No block matching, use the pre-match results as bi-directional fine-matches
+                    cur_matches = [filtered_matches for model, filtered_matches in pre_match_results[sec1_idx, sec2_idx].values() if filtered_matches is not None]
+                    if len(cur_matches) == 1:
+                        fine_match_results[sec1_idx, sec2_idx] = cur_matches
+                        fine_match_results[sec2_idx, sec1_idx] = [cur_matches[1], cur_matches[0]]
+                    else:
+                        fine_match_results[sec1_idx, sec2_idx] = np.concatenate(cur_matches, axis=1)
+                        fine_match_results[sec2_idx, sec1_idx] = [fine_match_results[sec1_idx, sec2_idx][1], fine_match_results[sec1_idx, sec2_idx][0]]
+
+
+                else:
                     # Perform block matching
-                    logger.report_event("Performing block matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
+                    # TODO - check if the fine-match was already computed
+                    logger.report_event("Performing fine-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
 
 
-        if self._avoid_fine_grain_matching:
-            fine_match_results = pre_match_results
+
+                # Make sure thatt there are matches between the two sections
+                assert(len(fine_match_results[sec1_idx, sec2_idx]) > 0)
+                assert(len(fine_match_results[sec2_idx, sec1_idx]) > 0)
 
         # optimize the matches
         logger.report_event("Optimizing the matches...", log_level=logging.INFO)
+
+        self._optimizer.optimize(layout, fine_match_results, lambda section, orig_pts, new_pts, mesh_spacing: update_section_post_optimization_and_save(section, orig_pts, new_pts, mesh_spacing, self._post_opt_dir), self._processes_pool)
+
+
+        # TODO - normalize all the sections (shift everything so we'll have a (0, 0) coordinate system for the stack)
+
+def update_section_post_optimization_and_save(section, orig_pts, new_pts, mesh_spacing, out_dir):
+    logger.report_event("Exporting section {}".format(section.canonical_section_name), log_level=logging.INFO)
+    exporter = MeshPointsModelExporter()
+    exporter.update_section_points_model_transform(section, orig_pts, new_pts, mesh_spacing)
+
+    # TODO - should also save the mesh as h5s
+
+    # save the output section
+    out_fname = os.path.join(out_dir, '{}.json'.format(section.canonical_section_name))
+    print('Writing output to: {}'.format(out_fname))
+    section.save_as_json(out_fname)
+    
 
 
 
 if __name__ == '__main__':
     secs_ts_fnames = [
         '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_010_S10R1.json',
-        '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_011_S11R1.json'
+        '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_011_S11R1.json',
+        '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_012_S12R1.json',
+        '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_013_S13R1.json',
+        '/n/home10/adisuis/Harvard/git_lichtmangpu01/mb_aligner/scripts/ECS_test9_cropped_014_S14R1.json'
     ]
     out_folder = './output_aligned_ECS_test9_cropped'
     conf_fname = '../../conf/conf_example.yaml'
@@ -171,26 +255,18 @@ if __name__ == '__main__':
     conf = StackAligner.load_conf_from_file(conf_fname)
     logger.report_event("Loading sections", log_level=logging.INFO)
     sections = []
+    # TODO - Should be done in a parallel fashion
     for ts_fname in secs_ts_fnames:
         with open(ts_fname, 'rt') as in_f:
             tilespec = ujson.load(in_f)
-        sections.append(Section.create_from_tilespec(tilespec))
+        wafer_num = 1
+        sec_num = int(os.path.basename(ts_fname).split('_')[-1].split('S')[1].split('R')[0])
+        sections.append(Section.create_from_tilespec(tilespec, wafer_section=(wafer_num, sec_num)))
     logger.report_event("Initializing aligner", log_level=logging.INFO)
     aligner = StackAligner(conf)
     logger.report_event("Aligning sections", log_level=logging.INFO)
     aligner.align_sections(sections) # will align and update the section tiles' transformations
 
-
-    die
-    if not os.path.exists(out_folder):
-        os.makedirs(out_folder)
-
-    logger.report_event("Writing output sections", log_level=logging.INFO)
-    for section, in_ts_fname in zip(sections, secs_ts_fnames):
-        out_ts_fname = os.path.join(out_folder, "{}_{}".format(str(section.layer).zfill(4), os.path.basename(in_ts_fname)))
-        # Save the transforms to file
-        print('Writing output to: {}'.format(out_ts_fname))
-        section.save_as_json(out_ts_fname)
 
     del aligner
 

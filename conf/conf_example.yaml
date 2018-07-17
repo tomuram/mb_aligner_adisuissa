@@ -45,6 +45,8 @@ stitching:
 
 alignment:
     processes_num: 12
+    work_dir: '3d_work_dir'
+    output_dir: '3d_output_dir'
 
     pre_match_type: mb_aligner.alignment.pre_matchers.full_section_then_mfovs_thumbs_blobs.PreMatch3DFullSectionThenMfovsThumbsBlobs
     pre_match_params:
@@ -68,4 +70,12 @@ alignment:
             #use_regularizer: True
             #regularizer_model_index: 1
             #regularizer_lambda: 0.1
+
+    #fine_match_type: 
     
+    optimizer_type: mb_aligner.alignment.optimizers.optimize_mesh_elastic.ElasticMeshOptimizer
+    optimizer_params:
+        checkpoints_dir: 'opt_checkpoints'
+        mesh_spacing: 500
+
+

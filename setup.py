@@ -40,7 +40,7 @@ EXTENSIONS = [
                   include_dirs=include_dirs_list,
                   extra_compile_args=['-O3', '--verbose'],
                   extra_objects=libraries_list
-                 )
+                 ),
 #         Extension(
 #                   "rh_aligner.common.vfc_filter",
 #                   #[str(os.path.join(b"rh_aligner", b"common", b"vfc_filter.pyx")), str(os.path.join(b"rh_aligner", b"common", b"vfc.cpp"))],
@@ -50,14 +50,14 @@ EXTENSIONS = [
 #                   extra_compile_args=['-O3', '--verbose'],
 #                   extra_objects=libraries_list
 #                  ),
-#         Extension(
-#                   "rh_aligner.alignment.mesh_derivs_multibeam",
-#                   #[str(os.path.join(b"rh_aligner", b"alignment", b"mesh_derivs_multibeam.pyx"))],
-#                   [os.path.join("rh_aligner", "alignment", "mesh_derivs_multibeam.pyx")],
-#                   include_dirs=[np.get_include()],
-#                   extra_compile_args=['-fopenmp', '-O3', '--verbose'],
-#                   extra_link_args=['-fopenmp']
-#                  )
+        Extension(
+                  "rh_aligner.alignment.mesh_derivs_elastic",
+                  #[str(os.path.join(b"rh_aligner", b"alignment", b"mesh_derivs_multibeam.pyx"))],
+                  [os.path.join("mh_aligner", "alignment", "optimizers", "mesh_derivs_elastic.pyx")],
+                  include_dirs=[np.get_include()],
+                  extra_compile_args=['-fopenmp', '-O3', '--verbose'],
+                  extra_link_args=['-fopenmp']
+                 )
 ]
 
 setup(
