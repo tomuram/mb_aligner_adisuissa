@@ -2,6 +2,7 @@ import numpy as np
 import os
 import json
 import cv2
+import math
 from rh_renderer import models
 
 class Tile(object):
@@ -22,6 +23,7 @@ class Tile(object):
         self._tile_idx = None
         self._transforms_modelspecs = []
         self._transforms = None
+        self._non_affine_transform = False
 
         # initialize values using kwargs
         if len(kwargs) > 0:
@@ -152,7 +154,18 @@ class Tile(object):
         """
         if self._transforms is None:
             self._transforms = [models.Transforms.from_tilespec(ts_transform) for ts_transform in self._transforms_modelspecs]
+            self._non_affine_transform = np.any(isinstance(t, models.AbstractAffineModel) for t in self._transforms)
         return self._transforms
+
+    @property
+    def transforms_non_affine(self):
+        """
+        Returns True iff at least one of the tile's transforms is non-affine
+        """
+        # compute the transforms if needed
+        self.transforms
+        return self._non_affine_transform
+
 
     def _load(self):
         """
@@ -167,6 +180,7 @@ class Tile(object):
         self._transforms_modelspecs.append(modelspec)
         if self._transforms is not None:
             self._transforms.append(models.Transforms.from_tilespec(ts_transform))
+            self._non_affine_transform = self._non_affine_transform | isinstance(self._transforms[-1], models.AbstractAffineModel)
 
     def add_transform(self, transform):
         """
@@ -175,8 +189,9 @@ class Tile(object):
         # add to the list of transformations (tilespec)
         modelspec = transform.to_modelspec()
         self._transforms_modelspecs.append(modelspec)
-        if self_transforms is not None:
+        if self._transforms is not None:
             self._transforms.append(transform)
+            self._non_affine_transform = self._non_affine_transform | isinstance(transform, models.AbstractAffineModel)
 
     def set_transform(self, transform):
         """
@@ -186,6 +201,7 @@ class Tile(object):
         modelspec = transform.to_modelspec()
         self._transforms_modelspecs = [modelspec]
         self._transforms = [transform]
+        self._non_affine_transform = isinstance(transform, models.AbstractAffineModel)
         self._update_bbox()
  
         
@@ -226,23 +242,56 @@ class Tile(object):
 
     def _update_bbox(self):
         """
-        Updates the tile's bounding box by applying the transformations on the image corners, and taking the minimum and maximum x,y values.
+        Updates the tile's bounding box.
+        If the tile's transforms are non-affine, update the bounding box by applying the transformations on the image corners, and taking the minimum and maximum x,y values.
+        Otherwise, the boundary is transformed and the minimal and maximal X,Ys are computed.
         """
-        corners = np.array([
-            [0., 0.],
-            [self._width, 0.],
-            [self._width, self._height],
-            [0., self._height]
-        ])
+        if self.transforms_non_affine:
+            # We  have a non-affine transformation, so compute the transformation of all the boundary pixels
+            # using a forward transformation from the boundaries of the source image to the destination
+            # Assumption: There won't be a pixel inside an image that goes out of the boundary
+            boundaries = np.zeros((2 * self._width + 2 * self._height, 2), dtype=np.float)
 
-        for t in self._transforms:
-            corners = t.apply(corners)
+            # Set boundary points with (X, 0)
+            boundaries[:self._width, 0] = np.arange(self._width, dtype=float)
+            # Set boundary points with (X, height-1)
+            boundaries[self._width:2*self._width, 0] = np.arange(self._width, dtype=float)
+            boundaries[self._width:2*self._width, 1] = float(tile._height - 1)
+            # Set boundary points with (0, Y)
+            boundaries[2*self._width:2*self._width + self._height, 1] = np.arange(self._height, dtype=float)
+            # Set boundary points with (width - 1, Y)
+            boundaries[2*self._width + self._height:, 1] = np.arange(self._height, dtype=float)
+            boundaries[2*self._width + self._height:, 0] = float(tile._width - 1)
+
+            for t in self._transforms:
+                boundaries = t.apply(boundaries)
+
+            # Find the bounding box of the boundaries
+            xy_min = np.min(boundaries, axis=0)
+            xy_max = np.max(boundaries, axis=0)
+            # If the bounding box is incorrect because the tile hasn't got matches in its scope, remove the tile
+            if np.any(np.isnan(xy_min)) or np.any(np.isnan(xy_max)):
+                raise Exception("Tile has an invalid non-affine transform, and should be discarded")
+            # Rounding to avoid float precision errors due to representation
+            #new_bbox = [math.floor(round(min_XY[0], 5)), math.ceil(round(max_XY[0], 5)), math.floor(round(min_XY[1], 5)), math.ceil(round(max_XY[1], 5))]
+            self._bbox = [int(math.floor(round(xy_min[0], 5))), int(math.ceil(round(xy_max[0], 5))), int(math.floor(round(xy_min[1], 5))), int(math.ceil(round(xy_max[1], 5)))]
+        else:
+            # affine only transform
+            corners = np.array([
+                [0., 0.],
+                [self._width, 0.],
+                [self._width, self._height],
+                [0., self._height]
+            ])
+
+            for t in self._transforms:
+                corners = t.apply(corners)
 
 
-        xy_min = np.min(corners, axis=0)
-        xy_max = np.max(corners, axis=0)
+            xy_min = np.min(corners, axis=0)
+            xy_max = np.max(corners, axis=0)
 
-        self._bbox = [xy_min[0], xy_max[0], xy_min[1], xy_max[1]]
+            self._bbox = [xy_min[0], xy_max[0], xy_min[1], xy_max[1]]
 
         
 
