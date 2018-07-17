@@ -9,11 +9,9 @@ from rh_renderer import models
 import time
 import tinyr
 
-SAMPLED_POINTS_NUM = 50
-
 class MeshPointsModelExporter(object):
-    def __init__(self, sampled_points_num=SAMPLED_POINTS_NUM):
-        self._sampled_points_num = sampled_points_num
+    def __init__(self):
+        pass
 
 
     def update_section_points_model_transform(self, section, orig_pts, new_pts, mesh_spacing):
