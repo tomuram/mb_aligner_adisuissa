@@ -19,22 +19,38 @@ class Section(object):
         # Initialize default values
         self._layer = kwargs.get("layer", None)
 
+        self._bbox = kwargs.get("bbox", None)
         # initialize values using kwargs
         #elif self._mfovs_dict is not None and len(self._mfovs_dict) > 0:
         #    self._layer = self._mfovs_dict.values()[0].layer
+
+        self._wafer_section = kwargs.get("wafer_section", (None, None))
+
+        self._canonical_section_name = None
             
 
     @classmethod
-    def create_from_tilespec(cls, tilespec):
+    def create_from_tilespec(cls, tilespec, **kwargs):
         """
         Creates a section from a given tilespec
         """
         per_mfov_tiles = defaultdict(list)
+        min_xys = []
+        max_xys = []
+        #min_xy = np.array([np.finfo('float32').max, np.finfo('float32').max])
+        #max_xy = np.array([np.finfo('float32').min, np.finfo('float32').min])
         for tile_ts in tilespec:
             per_mfov_tiles[tile_ts["mfov"]].append(Tile.create_from_tilespec(tile_ts))
+            min_xys.append(tile_ts['bbox'][::2]) 
+            max_xys.append(tile_ts['bbox'][1::2]) 
+
+        min_xy = np.min(min_xys, axis=0)
+        max_xy = np.max(max_xys, axis=0)
+        bbox = [min_xy[0], max_xy[0], min_xy[1], max_xy[1]]
+
         layer = int(tilespec[0]["layer"])
         all_mfovs = {mfov_idx:Mfov(mfov_tiles_list) for mfov_idx, mfov_tiles_list in per_mfov_tiles.items()}
-        return Section(all_mfovs, layer=layer)
+        return Section(all_mfovs, layer=layer, bbox=bbox, **kwargs)
 
     @classmethod
     def _parse_coordinates_file(cls, input_file):
@@ -81,7 +97,7 @@ class Section(object):
         return images, np.array(x), np.array(y)
 
     @classmethod
-    def create_from_full_image_coordinates(cls, full_image_coordinates_fname, layer, tile_size=None):
+    def create_from_full_image_coordinates(cls, full_image_coordinates_fname, layer, tile_size=None, **kwargs):
         """
         Creates a section from a given full_image_coordinates filename
         """
@@ -114,7 +130,13 @@ class Section(object):
             per_mfov_tiles[mfov_idx].append(tile)
             
         all_mfovs = {mfov_idx:Mfov(mfov_tiles_list) for mfov_idx, mfov_tiles_list in per_mfov_tiles.items()}
-        return Section(all_mfovs, kwargs={'layer':layer})
+
+        # Just take any tile's width and height to compute the max_x,y values
+        max_x = np.max(x_locs) + tile.width
+        max_y = np.max(y_locs) + tile.width
+        bbox = [0, max_x, 0, max_y]
+
+        return Section(all_mfovs, layer=layer, bbox=bbox, **kwargs)
 
 
 
@@ -128,7 +150,7 @@ class Section(object):
     @property
     def tilespec(self):
         """
-        Returns a tilespec representation of the mfov
+        Returns a tilespec representation of the section
         """
         ret = []
         # Order the mfovs by the mfov index
@@ -137,6 +159,35 @@ class Section(object):
             ret.extend(self._mfovs_dict[mfov_idx].tilespec)
         return ret
 
+    @property
+    def bbox(self):
+        """
+        Returns the bounding box [min_x, max_x, min_y, max_y] of the section
+        """
+        return self._bbox
+
+    @property
+    def wafer_section(self):
+        """
+        Returns a tuple of (wafer, section) of the original acquired section (set by the microscope software).
+        Note that if the user didn't supply it, it is set to (None, None).
+        """
+        return self._wafer_section
+ 
+    @property
+    def canonical_section_name(self):
+        """
+        Returns a canonical output name for the section (no suffix).
+        The canonical name will be:
+        [layer]_W[wafer]_Sec[section], where layer is 4 digits, wafer is 2 digits, and section is 3 digits.
+        """
+        if self._canonical_section_name is None:
+            assert(self._layer is not None)
+
+            wafer, section = self._wafer_section
+            self._canonical_section_name = '{}_W{}_Sec{}'.format(str(self._layer).zfill(4), str(wafer).zfill(2), str(section).zfill(3))
+        return self._canonical_section_name
+ 
     def save_as_json(self, out_fname):
         """
         Saves the section as a tilespec
@@ -166,7 +217,7 @@ class Section(object):
             for tile in mfov.tiles():
                 yield tile
 
-        
+       
 
 if __name__ == '__main__':
     section = Section.create_from_full_image_coordinates('/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt', 5)
