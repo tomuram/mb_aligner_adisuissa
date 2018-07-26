@@ -81,8 +81,8 @@ class BlockMatcherPMCCDispatcher(object):
             # Apply the mfov transformation to compute estimated location on sec2
             sec1_mfov_pts_on_sec2 = self._sec1_to_sec2_transform.apply(np.atleast_2d(sec1_pts)) * self._scaling
 
-            valid_matches = []
-            invalid_matches = []
+            valid_matches = [[], [], []]
+            invalid_matches = [[], []]
             for sec1_pt, sec2_pt_estimated in zip(sec1_pts, sec1_mfov_pts_on_sec2):
 
                 # Fetch the template around img1_point (after transformation)
@@ -109,7 +109,8 @@ class BlockMatcherPMCCDispatcher(object):
                     pmcc_result, reason, match_val = PMCC_filter.PMCC_match(sec2_search_window, sec1_template, min_correlation=self._min_corr, maximal_curvature_ratio=self._max_curvature, maximal_ROD=self._max_rod)
 
                 if pmcc_result is None:
-                    invalid_matches.append([sec1_pt, reason])
+                    invalid_matches[0].append(sec1_pt)
+                    invalid_matches[1].append(reason)
 #                     debug_out_fname1 = "temp_debug/debug_match_sec1{}-{}_template.png".format(int(sec1_pt[0]), int(sec1_pt[1]), int(sec2_pt_estimated[0]), int(sec2_pt_estimated[1]))
 #                     debug_out_fname2 = "temp_debug/debug_match_sec1{}-{}_search_window.png".format(int(sec1_pt[0]), int(sec1_pt[1]), int(sec2_pt_estimated[0]), int(sec2_pt_estimated[1]))
 #                     cv2.imwrite(debug_out_fname1, sec1_template)
@@ -125,13 +126,16 @@ class BlockMatcherPMCCDispatcher(object):
                         cv2.imwrite(debug_out_fname1, sec1_template)
                         sec2_cut_out = sec2_search_window[int(reason[0]):int(reason[0] + 2 * self._template_scaled_side), int(reason[1]):int(reason[1] + 2 * self._template_scaled_side)]
                         cv2.imwrite(debug_out_fname2, sec2_cut_out)
-                    valid_matches.append([sec1_pt, sec2_pt, match_val])
+                    valid_matches[0].append(np.array(sec1_pt))
+                    valid_matches[1].append(sec2_pt)
+                    valid_matches[2].append(match_val)
             return valid_matches, invalid_matches
         
 
         def match_sec2_to_sec1_mfov(self, sec2_pts):
             # Assume that only sec1 renderer was transformed and not sec2 (and both scaled)
-            sec2_pts_scaled = np.asarray(sec2_pts) * self._scaling
+            sec2_pts = np.asarray(sec2_pts)
+            sec2_pts_scaled = sec2_pts * self._scaling
 
             mat = self._sec1_to_sec2_transform.get_matrix()
             inverse_mat = np.linalg.inv(mat)
@@ -139,8 +143,8 @@ class BlockMatcherPMCCDispatcher(object):
             #inverse_model = BlockMatcherPMCC.inverse_transform(self._sec1_to_sec2_transform)
             #sec2_pts_on_sec1 = inverse_model.apply(sec2_pts)
 
-            valid_matches = []
-            invalid_matches = []
+            valid_matches = [[], [], []]
+            invalid_matches = [[], []]
             for sec2_pt, sec2_pt_scaled in zip(sec2_pts, sec2_pts_scaled):
                 # sec1_pt_estimated is after the sec1_to_sec2 transform
                 sec1_pt_estimated = sec2_pt_scaled
@@ -169,7 +173,8 @@ class BlockMatcherPMCCDispatcher(object):
                     pmcc_result, reason, match_val = PMCC_filter.PMCC_match(sec1_search_window, sec2_template, min_correlation=self._min_corr, maximal_curvature_ratio=self._max_curvature, maximal_ROD=self._max_rod)
 
                 if pmcc_result is None:
-                    invalid_matches.append([sec2_pt, reason])
+                    invalid_matches[0].append(sec2_pt)
+                    invalid_matches[1].append(reason)
 #                     debug_out_fname1 = "temp_debug/debug_match_sec2{}-{}_template.png".format(int(sec2_pt[0]), int(sec2_pt[1]), int(sec1_pt_estimated[0]), int(sec1_pt_estimated[1]))
 #                     debug_out_fname2 = "temp_debug/debug_match_sec2{}-{}_search_window.png".format(int(sec2_pt[0]), int(sec2_pt[1]), int(sec1_pt_estimated[0]), int(sec1_pt_estimated[1]))
 #                     cv2.imwrite(debug_out_fname1, sec2_template)
@@ -186,7 +191,9 @@ class BlockMatcherPMCCDispatcher(object):
                         cv2.imwrite(debug_out_fname1, sec2_template)
                         sec1_cut_out = sec1_search_window[int(reason[0]):int(reason[0] + 2 * self._template_scaled_side), int(reason[1]):int(reason[1] + 2 * self._template_scaled_side)]
                         cv2.imwrite(debug_out_fname2, sec1_cut_out)
-                    valid_matches.append([sec2_pt, sec1_pt, match_val])
+                    valid_matches[0].append(sec2_pt)
+                    valid_matches[1].append(sec1_pt)
+                    valid_matches[2].append(match_val)
             return valid_matches, invalid_matches
         
 
@@ -226,10 +233,9 @@ class BlockMatcherPMCCDispatcher(object):
 
     @staticmethod
     def sum_invalid_matches(invalid_matches):
-        if len(invalid_matches) == 0:
+        if len(invalid_matches[1]) == 0:
             return [0] * 5
-        invalid_matches = np.asarray(invalid_matches)
-        hist, _ = np.histogram(invalid_matches[:, 1], bins=5)
+        hist, _ = np.histogram(invalid_matches[1], bins=5)
         return hist
 
 
@@ -248,11 +254,11 @@ class BlockMatcherPMCCDispatcher(object):
         logger.report_event("Block-Matching+PMCC layers: {} with {} (mfov1 {}) {} mesh points1, {} mesh points2".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx, len(sec1_mfov_mesh_pts), len(sec2_mfov_mesh_pts)), log_level=logging.INFO)
         logger.report_event("Block-Matching+PMCC layers: {} -> {}".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.INFO)
         valid_matches1, invalid_matches1 = fine_matcher.match_sec1_to_sec2_mfov(sec1_mfov_mesh_pts)
-        logger.report_event("Block-Matching+PMCC layers: {} -> {} valid matches: {}, invalid_matches: {} {}".format(sec1.canonical_section_name, sec2.canonical_section_name, len(valid_matches1), len(invalid_matches1), BlockMatcherPMCCDispatcher.sum_invalid_matches(invalid_matches1)), log_level=logging.INFO)
+        logger.report_event("Block-Matching+PMCC layers: {} -> {} valid matches: {}, invalid_matches: {} {}".format(sec1.canonical_section_name, sec2.canonical_section_name, len(valid_matches1[0]), len(invalid_matches1[0]), BlockMatcherPMCCDispatcher.sum_invalid_matches(invalid_matches1)), log_level=logging.INFO)
 
         logger.report_event("Block-Matching+PMCC layers: {} <- {}".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.INFO)
         valid_matches2, invalid_matches2 = fine_matcher.match_sec2_to_sec1_mfov(sec2_mfov_mesh_pts)
-        logger.report_event("Block-Matching+PMCC layers: {} <- {} valid matches: {}, invalid_matches: {} {}".format(sec1.canonical_section_name, sec2.canonical_section_name, len(valid_matches2), len(invalid_matches2), BlockMatcherPMCCDispatcher.sum_invalid_matches(invalid_matches2)), log_level=logging.INFO)
+        logger.report_event("Block-Matching+PMCC layers: {} <- {} valid matches: {}, invalid_matches: {} {}".format(sec1.canonical_section_name, sec2.canonical_section_name, len(valid_matches2[0]), len(invalid_matches2[0]), BlockMatcherPMCCDispatcher.sum_invalid_matches(invalid_matches2)), log_level=logging.INFO)
 
         return sec1_mfov_tile_idx, valid_matches1, valid_matches2
 
@@ -362,8 +368,8 @@ class BlockMatcherPMCCDispatcher(object):
 
 
         # Activate the actual matching        
-        sec1_to_sec2_results = []
-        sec2_to_sec1_results = []
+        sec1_to_sec2_results = [[], []]
+        sec2_to_sec1_results = [[], []]
         pool_results = []
         for region1_key, sec1_region_mesh_pts in sec1_per_region_mesh_pts.items():
             sec2_mesh_pts_cur_sec1_region = sec2_per_region1_mesh_pts[region1_key]
@@ -372,13 +378,15 @@ class BlockMatcherPMCCDispatcher(object):
             pool_results.append(res_pool)
 
         for res_pool in pool_results:
-            sec1_region_index, sec1_sec2_mfov_matches, sec2_sec1_mfov_matches = res_pool.get()
+            sec1_region_index, sec1_sec2_region_matches, sec2_sec1_region_matches = res_pool.get()
 
-            if len(sec1_sec2_mfov_matches) > 0:
-                sec1_to_sec2_results.append(sec1_sec2_mfov_matches)
-            if len(sec2_sec1_mfov_matches) > 0:
-                sec2_to_sec1_results.append(sec2_sec1_mfov_matches)
+            if len(sec1_sec2_region_matches[0]) > 0:
+                sec1_to_sec2_results[0].append(sec1_sec2_region_matches[0])
+                sec1_to_sec2_results[1].append(sec1_sec2_region_matches[1])
+            if len(sec2_sec1_region_matches[0]) > 0:
+                sec2_to_sec1_results[0].append(sec2_sec1_region_matches[0])
+                sec2_to_sec1_results[1].append(sec2_sec1_region_matches[1])
 
-        return np.vstack(sec1_to_sec2_results), np.vstack(sec2_to_sec1_results)
+        return np.array([np.vstack(sec1_to_sec2_results[0]), np.vstack(sec1_to_sec2_results[1])]), np.array([np.vstack(sec2_to_sec1_results[0]), np.vstack(sec2_to_sec1_results[1])])
         
 

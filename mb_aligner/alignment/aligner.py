@@ -192,9 +192,9 @@ class StackAligner(object):
                 assert(np.any([model is not None for (model, _) in pre_match_results[sec1_idx, sec2_idx].values()]))
 
         
+                layout['neighbors'][sec1_idx].add(sec2_idx)
+                layout['neighbors'][sec2_idx].add(sec1_idx)
                 if self._fine_matcher is None:
-                    layout['neighbors'][sec1_idx].add(sec2_idx)
-                    layout['neighbors'][sec2_idx].add(sec1_idx)
                     # No block matching, use the pre-match results as bi-directional fine-matches
                     cur_matches = [filtered_matches for model, filtered_matches in pre_match_results[sec1_idx, sec2_idx].values() if filtered_matches is not None]
                     if len(cur_matches) == 1:
@@ -210,9 +210,9 @@ class StackAligner(object):
                     # TODO - check if the fine-match was already computed
                     logger.report_event("Performing fine-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
                     sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+                    logger.report_event("fine-matching between sections {0} and {1} results: {0}->{1} {2} matches, {0}<-{1} {3} matches ".format(sec1.layer, sec2.layer, len(sec1_sec2_matches[0]), len(sec2_sec1_matches[0])), log_level=logging.INFO)
                     fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches
                     fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches
-                    die
 
 
 
