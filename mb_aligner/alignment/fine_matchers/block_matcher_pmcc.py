@@ -16,7 +16,7 @@ from rh_renderer import models
 from mb_aligner.alignment.fine_matchers import PMCC_filter
 import multiprocessing as mp
 from rh_renderer.tilespec_affine_renderer import TilespecAffineRenderer
-#import threading
+import threading
 from scipy.spatial import cKDTree as KDTree
 from collections import defaultdict
 
@@ -27,7 +27,7 @@ from collections import defaultdict
 # from ..common import cv_wrap_module
 
 
-#threadLocal = threading.local()
+threadLocal = threading.local()
 
 class BlockMatcherPMCCDispatcher(object):
 
@@ -234,13 +234,18 @@ class BlockMatcherPMCCDispatcher(object):
 
 
     @staticmethod
-    def _perform_matching(sec1_mfov_index, sec1, sec2, sec1_to_sec2_mfov_transform, sec1_mfov_mesh_pts, sec2_mfov_mesh_pts, debug_dir, matcher_args):
-        fine_matcher = BlockMatcherPMCCDispatcher.BlockMatcherPMCC(sec1, sec2, sec1_to_sec2_mfov_transform, **matcher_args)
-        if debug_dir is not None:
-            fine_matcher.set_debug_dir(debug_dir)
+    def _perform_matching(sec1_mfov_tile_idx, sec1, sec2, sec1_to_sec2_mfov_transform, sec1_mfov_mesh_pts, sec2_mfov_mesh_pts, debug_dir, matcher_args):
+        fine_matcher_key = "block_matcher_{},{},{}".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx[0])
+        fine_matcher = getattr(threadLocal, fine_matcher_key, None)
+        if fine_matcher is None:
+            fine_matcher = BlockMatcherPMCCDispatcher.BlockMatcherPMCC(sec1, sec2, sec1_to_sec2_mfov_transform, **matcher_args)
+            if debug_dir is not None:
+                fine_matcher.set_debug_dir(debug_dir)
+
+            setattr(threadLocal, fine_matcher_key, fine_matcher)
 
 
-        logger.report_event("Block-Matching+PMCC layers: {} with {} (mfov1 {}) {} mesh points1, {} mesh points2".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_index, len(sec1_mfov_mesh_pts), len(sec2_mfov_mesh_pts)), log_level=logging.INFO)
+        logger.report_event("Block-Matching+PMCC layers: {} with {} (mfov1 {}) {} mesh points1, {} mesh points2".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx, len(sec1_mfov_mesh_pts), len(sec2_mfov_mesh_pts)), log_level=logging.INFO)
         logger.report_event("Block-Matching+PMCC layers: {} -> {}".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.INFO)
         valid_matches1, invalid_matches1 = fine_matcher.match_sec1_to_sec2_mfov(sec1_mfov_mesh_pts)
         logger.report_event("Block-Matching+PMCC layers: {} -> {} valid matches: {}, invalid_matches: {} {}".format(sec1.canonical_section_name, sec2.canonical_section_name, len(valid_matches1), len(invalid_matches1), BlockMatcherPMCCDispatcher.sum_invalid_matches(invalid_matches1)), log_level=logging.INFO)
@@ -249,7 +254,7 @@ class BlockMatcherPMCCDispatcher(object):
         valid_matches2, invalid_matches2 = fine_matcher.match_sec2_to_sec1_mfov(sec2_mfov_mesh_pts)
         logger.report_event("Block-Matching+PMCC layers: {} <- {} valid matches: {}, invalid_matches: {} {}".format(sec1.canonical_section_name, sec2.canonical_section_name, len(valid_matches2), len(invalid_matches2), BlockMatcherPMCCDispatcher.sum_invalid_matches(invalid_matches2)), log_level=logging.INFO)
 
-        return sec1_mfov_index, valid_matches1, valid_matches2
+        return sec1_mfov_tile_idx, valid_matches1, valid_matches2
 
 #     def inverse_transform(model):
 #         mat = model.get_matrix()
