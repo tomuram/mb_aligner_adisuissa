@@ -209,6 +209,10 @@ class StackAligner(object):
                     # Perform block matching
                     # TODO - check if the fine-match was already computed
                     logger.report_event("Performing fine-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
+                    sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+                    fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches
+                    fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches
+                    die
 
 
 

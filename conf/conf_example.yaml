@@ -71,7 +71,16 @@ alignment:
             #regularizer_model_index: 1
             #regularizer_lambda: 0.1
 
-    #fine_match_type: 
+    fine_match_type: mb_aligner.alignment.fine_matchers.block_matcher_pmcc.BlockMatcherPMCCDispatcher
+    fine_match_params:
+        mesh_spacing : 500
+        scaling : 0.4
+        template_size : 400
+        search_window_size : 800
+        min_correlation : 0.3
+        maximal_curvature_ratio : 10
+        maximal_ROD : 0.9
+        use_clahe : False
     
     optimizer_type: mb_aligner.alignment.optimizers.optimize_mesh_elastic.ElasticMeshOptimizer
     optimizer_params:
