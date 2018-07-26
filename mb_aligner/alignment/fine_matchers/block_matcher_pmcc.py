@@ -226,6 +226,8 @@ class BlockMatcherPMCCDispatcher(object):
 
     @staticmethod
     def sum_invalid_matches(invalid_matches):
+        if len(invalid_matches) == 0:
+            return [0] * 5
         invalid_matches = np.asarray(invalid_matches)
         hist, _ = np.histogram(invalid_matches[:, 1], bins=5)
         return hist
@@ -325,38 +327,47 @@ class BlockMatcherPMCCDispatcher(object):
         sec2_tiles_mfov_tile_idxs = np.array([[t.mfov_index, t.tile_index] for t in sec2.tiles()])
 
         # TODO - split the work in a smart way between the processes
-        # Group the mesh points of sec1 by its mfovs and make sure the points are in tiles
+        # Group the mesh points of sec1 by its mfovs_tiles and make sure the points are in tiles
         sec1_mesh_pts_mfov_tile_idxs = sec1_tiles_mfov_tile_idxs[sec1_tiles_centers_kdtree.query(sec1_mesh_pts)[1]]
-        sec1_per_mfov_mesh_pts = defaultdict(list)
-        for sec1_pt, (sec1_pt_mfov_idx, sec1_pt_tile_idx) in zip(sec1_mesh_pts, sec1_mesh_pts_mfov_tile_idxs):
-            sec1_tile = sec1.get_mfov(sec1_pt_mfov_idx).get_tile(sec1_pt_tile_idx)
+        sec1_per_region_mesh_pts = defaultdict(list)
+        for sec1_pt, sec1_pt_mfov_tile_idx in zip(sec1_mesh_pts, sec1_mesh_pts_mfov_tile_idxs):
+            sec1_tile = sec1.get_mfov(sec1_pt_mfov_tile_idx[0]).get_tile(sec1_pt_mfov_tile_idx[1])
             if BlockMatcherPMCCDispatcher._is_point_in_img(sec1_tile.bbox, sec1_pt):
-                sec1_per_mfov_mesh_pts[sec1_pt_mfov_idx].append(sec1_pt)
+                sec1_per_region_mesh_pts[tuple(sec1_pt_mfov_tile_idx)].append(sec1_pt)
 
         # Group the mesh pts of sec2 by the mfov on sec1 which they should end up on (mfov1 that after applying its transformation is closest to that point)
-        mfovs1_centers_sec2_kdtree = KDTree(mfovs1_centers_sec2centers[2])
-        sec2_mesh_pts_sec1_mfovs_idxs = mfovs1_centers_sec2centers[0][mfovs1_centers_sec2_kdtree.query(sec2_mesh_pts)[1]]
-        mfovs2_centers = [np.array([(mfov2.bbox[0] + mfov2.bbox[1])/2, (mfov2.bbox[2] + mfov2.bbox[3])/2]) for mfov2 in sec2.mfovs()]
-        mfovs2_closest_centers_mfovs1_idxs = mfovs1_centers_sec2_kdtree.query(mfovs2_centers)[1]
+        # Transform sec1 tiles centers to their estimated location on sec2
+        sec1_tiles_centers_per_mfov = defaultdict(list)
+        for sec1_tile_center, sec1_tiles_mfov_tile_idx in zip(sec1_tiles_centers, sec1_tiles_mfov_tile_idxs):
+            sec1_tiles_centers_per_mfov[sec1_tiles_mfov_tile_idx[0]].append(sec1_tile_center)
+        sec1_tiles_centers_on_sec2 = [
+                                        sec1_to_sec2_mfovs_transforms[mfov_index].apply(np.atleast_2d(mfov1_tiles_centers))
+                                     for mfov_index, mfov1_tiles_centers in sec1_tiles_centers_per_mfov.items()
+                                     ]
+        sec1_tiles_centers_on_sec2 = np.vstack(tuple(sec1_tiles_centers_on_sec2))
+
+        sec1_tiles_centers_on_sec2_kdtree = KDTree(sec1_tiles_centers_on_sec2)
+        sec2_mesh_pts_sec1_closest_tile_idxs = sec1_tiles_centers_on_sec2_kdtree.query(sec2_mesh_pts)[1]
         sec2_mesh_pts_mfov_tile_idxs = sec2_tiles_mfov_tile_idxs[sec2_tiles_centers_kdtree.query(sec2_mesh_pts)[1]]
-        sec2_per_mfov1_mesh_pts = defaultdict(list)
-        for sec2_pt, (sec2_pt_mfov_idx, sec2_pt_tile_idx), sec1_mfov_idx in zip(sec2_mesh_pts, sec2_mesh_pts_mfov_tile_idxs, sec2_mesh_pts_sec1_mfovs_idxs):
+        sec2_per_region1_mesh_pts = defaultdict(list)
+        for sec2_pt, (sec2_pt_mfov_idx, sec2_pt_tile_idx), sec1_tile_center_idx in zip(sec2_mesh_pts, sec2_mesh_pts_mfov_tile_idxs, sec2_mesh_pts_sec1_closest_tile_idxs):
             sec2_tile = sec2.get_mfov(sec2_pt_mfov_idx).get_tile(sec2_pt_tile_idx)
             if BlockMatcherPMCCDispatcher._is_point_in_img(sec2_tile.bbox, sec2_pt):
-                sec2_per_mfov1_mesh_pts[sec1_mfov_idx].append(sec2_pt)
+                sec2_per_region1_mesh_pts[tuple(sec1_tiles_mfov_tile_idxs[sec1_tile_center_idx])].append(sec2_pt)
+
 
         # Activate the actual matching        
         sec1_to_sec2_results = []
         sec2_to_sec1_results = []
         pool_results = []
-        for sec1_mfov_index, sec1_mfov_mesh_pts in sec1_per_mfov_mesh_pts.items():
-            sec2_mesh_pts_cur_sec1_mfov = sec2_per_mfov1_mesh_pts[sec1_mfov_index]
+        for region1_key, sec1_region_mesh_pts in sec1_per_region_mesh_pts.items():
+            sec2_mesh_pts_cur_sec1_region = sec2_per_region1_mesh_pts[region1_key]
             #sec1_sec2_mfov_matches, sec2_sec1_mfov_matches = BlockMatcherPMCCDispatcher._perform_matching(sec1_mfov_index, sec1, sec2, sec1_to_sec2_mfovs_transforms[sec1_mfov_index], sec1_mfov_mesh_pts, sec2_mesh_pts_cur_sec1_mfov, self._debug_dir, **self._matcher_kwargs)
-            res_pool = pool.apply_async(BlockMatcherPMCCDispatcher._perform_matching, (sec1_mfov_index, sec1, sec2, sec1_to_sec2_mfovs_transforms[sec1_mfov_index], sec1_mfov_mesh_pts, sec2_mesh_pts_cur_sec1_mfov, self._debug_dir, self._matcher_kwargs))
+            res_pool = pool.apply_async(BlockMatcherPMCCDispatcher._perform_matching, (region1_key, sec1, sec2, sec1_to_sec2_mfovs_transforms[region1_key[0]], sec1_region_mesh_pts, sec2_mesh_pts_cur_sec1_region, self._debug_dir, self._matcher_kwargs))
             pool_results.append(res_pool)
 
         for res_pool in pool_results:
-            sec1_mfov_index, sec1_sec2_mfov_matches, sec2_sec1_mfov_matches = res_pool.get()
+            sec1_region_index, sec1_sec2_mfov_matches, sec2_sec1_mfov_matches = res_pool.get()
 
             if len(sec1_sec2_mfov_matches) > 0:
                 sec1_to_sec2_results.append(sec1_sec2_mfov_matches)
