@@ -241,15 +241,18 @@ class BlockMatcherPMCCDispatcher(object):
 
     @staticmethod
     def _perform_matching(sec1_mfov_tile_idx, sec1, sec2, sec1_to_sec2_mfov_transform, sec1_mfov_mesh_pts, sec2_mfov_mesh_pts, debug_dir, matcher_args):
-        fine_matcher_key = "block_matcher_{},{},{}".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx[0])
-        fine_matcher = getattr(threadLocal, fine_matcher_key, None)
-        if fine_matcher is None:
-            fine_matcher = BlockMatcherPMCCDispatcher.BlockMatcherPMCC(sec1, sec2, sec1_to_sec2_mfov_transform, **matcher_args)
-            if debug_dir is not None:
-                fine_matcher.set_debug_dir(debug_dir)
+#         fine_matcher_key = "block_matcher_{},{},{}".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx[0])
+#         fine_matcher = getattr(threadLocal, fine_matcher_key, None)
+#         if fine_matcher is None:
+#             fine_matcher = BlockMatcherPMCCDispatcher.BlockMatcherPMCC(sec1, sec2, sec1_to_sec2_mfov_transform, **matcher_args)
+#             if debug_dir is not None:
+#                 fine_matcher.set_debug_dir(debug_dir)
+# 
+#             setattr(threadLocal, fine_matcher_key, fine_matcher)
 
-            setattr(threadLocal, fine_matcher_key, fine_matcher)
-
+        fine_matcher = BlockMatcherPMCCDispatcher.BlockMatcherPMCC(sec1, sec2, sec1_to_sec2_mfov_transform, **matcher_args)
+        if debug_dir is not None:
+            fine_matcher.set_debug_dir(debug_dir)
 
         logger.report_event("Block-Matching+PMCC layers: {} with {} (mfov1 {}) {} mesh points1, {} mesh points2".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx, len(sec1_mfov_mesh_pts), len(sec2_mfov_mesh_pts)), log_level=logging.INFO)
         logger.report_event("Block-Matching+PMCC layers: {} -> {}".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.INFO)
@@ -267,8 +270,7 @@ class BlockMatcherPMCCDispatcher(object):
 #         new_model = models.AffineModel(np.linalg.inv(mat))
 #         return new_model
 
-    #def match_layers_fine_matching(self, sec1, sec2, sec1_cache, sec2_cache, sec1_to_sec2_mfovs_transforms, pool):
-    def match_layers_fine_matching(self, sec1, sec2, sec1_to_sec2_mfovs_transforms, pool):
+    def match_layers_fine_matching(self, sec1, sec2, sec1_cache, sec2_cache, sec1_to_sec2_mfovs_transforms, pool):
 
         starttime = time.time()
         logger.report_event("Block-Matching+PMCC layers: {} with {} (bidirectional)".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.INFO)

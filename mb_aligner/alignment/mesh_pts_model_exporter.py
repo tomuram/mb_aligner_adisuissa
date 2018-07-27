@@ -58,7 +58,7 @@ class MeshPointsModelExporter(object):
                 continue
 
             tile_model = models.PointsTransformModel((orig_pts[filtered_pts_idxs], new_pts[filtered_pts_idxs]))
-            tile.set_transform(tile_model)
+            tile.add_transform(tile_model)
 
         # TODO - remove tiles that no transformation was found for
 #         for tile_index in sorted(tiles_to_remove, reverse=True):

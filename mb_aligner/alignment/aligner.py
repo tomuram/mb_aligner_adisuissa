@@ -18,6 +18,7 @@ from collections import defaultdict
 import tinyr
 from mb_aligner.common.section_cache import SectionCacheProcesses as SectionCache
 from mb_aligner.alignment.mesh_pts_model_exporter import MeshPointsModelExporter
+from mb_aligner.alignment.normalize_coordinates import normalize_coordinates
 import importlib
 
 
@@ -209,7 +210,7 @@ class StackAligner(object):
                     # Perform block matching
                     # TODO - check if the fine-match was already computed
                     logger.report_event("Performing fine-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
-                    sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+                    sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec1_cache, sec2_cache, pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
                     logger.report_event("fine-matching between sections {0} and {1} results: {0}->{1} {2} matches, {0}<-{1} {3} matches ".format(sec1.layer, sec2.layer, len(sec1_sec2_matches[0]), len(sec2_sec1_matches[0])), log_level=logging.INFO)
                     fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches
                     fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches
@@ -227,6 +228,7 @@ class StackAligner(object):
 
 
         # TODO - normalize all the sections (shift everything so we'll have a (0, 0) coordinate system for the stack)
+        normalize_coordinates([self._post_opt_dir], self._output_dir, self._processes_pool)
 
 def update_section_post_optimization_and_save(section, orig_pts, new_pts, mesh_spacing, out_dir):
     logger.report_event("Exporting section {}".format(section.canonical_section_name), log_level=logging.INFO)

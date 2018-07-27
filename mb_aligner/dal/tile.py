@@ -154,7 +154,7 @@ class Tile(object):
         """
         if self._transforms is None:
             self._transforms = [models.Transforms.from_tilespec(ts_transform) for ts_transform in self._transforms_modelspecs]
-            self._non_affine_transform = np.any(isinstance(t, models.AbstractAffineModel) for t in self._transforms)
+            self._non_affine_transform = not np.all([isinstance(t, models.AbstractAffineModel) for t in self._transforms])
         return self._transforms
 
     @property
@@ -163,7 +163,9 @@ class Tile(object):
         Returns True iff at least one of the tile's transforms is non-affine
         """
         # compute the transforms if needed
-        self.transforms
+        if self._transforms is None:
+            self._transforms = [models.Transforms.from_tilespec(ts_transform) for ts_transform in self._transforms_modelspecs]
+            self._non_affine_transform = not np.all([isinstance(t, models.AbstractAffineModel) for t in self._transforms])
         return self._non_affine_transform
 
 
@@ -180,7 +182,8 @@ class Tile(object):
         self._transforms_modelspecs.append(modelspec)
         if self._transforms is not None:
             self._transforms.append(models.Transforms.from_tilespec(ts_transform))
-            self._non_affine_transform = self._non_affine_transform | isinstance(self._transforms[-1], models.AbstractAffineModel)
+            self._non_affine_transform = self._non_affine_transform | ~isinstance(self._transforms[-1], models.AbstractAffineModel)
+        self._update_bbox()
 
     def add_transform(self, transform):
         """
@@ -191,7 +194,8 @@ class Tile(object):
         self._transforms_modelspecs.append(modelspec)
         if self._transforms is not None:
             self._transforms.append(transform)
-            self._non_affine_transform = self._non_affine_transform | isinstance(transform, models.AbstractAffineModel)
+            self._non_affine_transform = self._non_affine_transform | ~isinstance(transform, models.AbstractAffineModel)
+        self._update_bbox()
 
     def set_transform(self, transform):
         """
@@ -201,7 +205,7 @@ class Tile(object):
         modelspec = transform.to_modelspec()
         self._transforms_modelspecs = [modelspec]
         self._transforms = [transform]
-        self._non_affine_transform = isinstance(transform, models.AbstractAffineModel)
+        self._non_affine_transform = not isinstance(transform, models.AbstractAffineModel)
         self._update_bbox()
  
         
@@ -256,12 +260,12 @@ class Tile(object):
             boundaries[:self._width, 0] = np.arange(self._width, dtype=float)
             # Set boundary points with (X, height-1)
             boundaries[self._width:2*self._width, 0] = np.arange(self._width, dtype=float)
-            boundaries[self._width:2*self._width, 1] = float(tile._height - 1)
+            boundaries[self._width:2*self._width, 1] = float(self._height - 1)
             # Set boundary points with (0, Y)
             boundaries[2*self._width:2*self._width + self._height, 1] = np.arange(self._height, dtype=float)
             # Set boundary points with (width - 1, Y)
             boundaries[2*self._width + self._height:, 1] = np.arange(self._height, dtype=float)
-            boundaries[2*self._width + self._height:, 0] = float(tile._width - 1)
+            boundaries[2*self._width + self._height:, 0] = float(self._width - 1)
 
             for t in self._transforms:
                 boundaries = t.apply(boundaries)
