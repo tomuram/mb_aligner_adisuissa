@@ -177,6 +177,7 @@ def filter_triangles(m0, m1, choices,
     return choices[mask]
 
 
+
 def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon, min_inlier_ratio, min_num_inlier, det_delta=0.55, max_stretch=None, max_rot_deg=None, tri_angles_comparator=None):
     # model = Model.create_model(target_model_type)
     assert(len(sample_matches[0]) == len(sample_matches[1]))
@@ -192,7 +193,29 @@ def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon,
         logger.report_event("RANSAC cannot find a good model because the number of initial matches ({}) is too small.".format(sample_matches[0].shape[0]), log_level=logging.WARN)
         return None, None, None
 
-    if target_model_type == 1:
+    if target_model_type == 0:
+        # Translation model, use cython to improve speed
+        res_status, res_model_params, res_inliers_mask = ransac_cython.ransac_translation(
+                #np.array([pts1.T, pts2.T]), np.array([pts1.T, pts2.T]),
+                [sample_matches[0].astype(np.float32), sample_matches[1].astype(np.float32)],
+                [test_matches[0].astype(np.float32), test_matches[1].astype(np.float32)],
+                int(iterations),
+                float(epsilon),
+                float(min_inlier_ratio),
+                int(min_num_inlier)
+            )
+
+        if res_status != 0: # failure
+            return None, None, None
+            
+
+        best_model = models.TranslationModel((res_model_params[0], res_model_params[1]))
+        best_model_mean_dists = 0
+
+        return res_inliers_mask, best_model, best_model_mean_dists
+ 
+    elif target_model_type == 1:
+        # Rigid model, use cython to improve speed
         if max_rot_deg_cos is None:
             max_rot_deg_cos = 0
         res_status, res_model_params, res_inliers_mask = ransac_cython.ransac_rigid(
