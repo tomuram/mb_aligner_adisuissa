@@ -71,16 +71,46 @@ alignment:
             #regularizer_model_index: 1
             #regularizer_lambda: 0.1
 
-    fine_match_type: mb_aligner.alignment.fine_matchers.block_matcher_pmcc.BlockMatcherPMCCDispatcher
+#     fine_match_type: mb_aligner.alignment.fine_matchers.block_matcher_pmcc.BlockMatcherPMCCDispatcher
+#     fine_match_params:
+#         mesh_spacing : 500
+#         scaling : 0.4
+#         template_size : 400
+#         search_window_size : 800
+#         min_correlation : 0.3
+#         maximal_curvature_ratio : 10
+#         maximal_ROD : 0.9
+#         use_clahe : False
+
+    fine_match_type: mb_aligner.alignment.fine_matchers.features_block_matcher.FeaturesBlockMatcherDispatcher
     fine_match_params:
         mesh_spacing : 500
-        scaling : 0.4
         template_size : 400
         search_window_size : 800
-        min_correlation : 0.3
-        maximal_curvature_ratio : 10
-        maximal_ROD : 0.9
-        use_clahe : False
+
+        detector_type: ORB
+        detector_params:
+            nfeatures: 10000
+ 
+        matcher_params:
+            ROD_cutoff: 0.95
+            model_index: 0 # 0 - Translation, 1 - Rigid, 3 - Affine
+            #num_filtered_percent: 0.1
+            #filter_rate_cutoff: 0.1
+            min_features_num: 10
+            iterations: 1000
+            max_epsilon: 5
+            min_inlier_ratio: 0.0
+            min_num_inlier: 0.0
+            max_trust: 3
+            #det_delta: 0.95
+            #max_stretch: 0.95
+            #use_regularizer: True
+            #regularizer_model_index: 1
+            #regularizer_lambda: 0.1
+            #best_k_matches: 30
+
+
     
     optimizer_type: mb_aligner.alignment.optimizers.optimize_mesh_elastic.ElasticMeshOptimizer
     optimizer_params:

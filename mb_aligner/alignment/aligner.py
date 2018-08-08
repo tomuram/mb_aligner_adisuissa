@@ -210,14 +210,14 @@ class StackAligner(object):
                     # Perform block matching
                     # TODO - check if the fine-match was already computed
                     logger.report_event("Performing fine-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
-                    sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec1_cache, sec2_cache, pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+                    sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec_caches[sec1_idx], sec_caches[sec2_idx], pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
                     logger.report_event("fine-matching between sections {0} and {1} results: {0}->{1} {2} matches, {0}<-{1} {3} matches ".format(sec1.layer, sec2.layer, len(sec1_sec2_matches[0]), len(sec2_sec1_matches[0])), log_level=logging.INFO)
                     fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches
                     fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches
 
 
 
-                # Make sure thatt there are matches between the two sections
+                # Make sure that there are matches between the two sections
                 assert(len(fine_match_results[sec1_idx, sec2_idx]) > 0)
                 assert(len(fine_match_results[sec2_idx, sec1_idx]) > 0)
 
