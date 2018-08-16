@@ -123,7 +123,7 @@ class Rigid2DOptimizer(object):
                                             np.dot(delta_x * (pair_matches[1][:, 0]*params[theta2_idx] + pair_matches[1][:, 1]),
                                                    grad_f_multiplier)
                                          ) + np.sum(
-                                            np.dot(delta_y * (-pair_matches[1][:, 0] + pair_matches[1][:, 1]*params[theta1_idx]),
+                                            np.dot(delta_y * (-pair_matches[1][:, 0] + pair_matches[1][:, 1]*params[theta2_idx]),
                                                    grad_f_multiplier)
                                          )
             grad_f_result[tx2_idx] += -np.sum(np.dot(delta_x, grad_f_multiplier))
@@ -163,7 +163,7 @@ class Rigid2DOptimizer(object):
                 cur_p = prev_p
                 cur_cost = prev_cost
                 gamma *= 0.5
-            elif np.all(cur_p - prev_p <= self._eps): # We took a good step, but the change to the parameters vector is negligible
+            elif np.all(np.abs(cur_p - prev_p) <= self._eps): # We took a good step, but the change to the parameters vector is negligible
                 break
             else: # We took a good step, try to increase the step size a bit
                 gamma *= 1.1
