@@ -32,7 +32,8 @@ stitching:
         #regularizer_lambda: 0.1
         best_k_matches: 30
 
-    optimizer_type: RIGID
+    optimizer_type: mb_aligner.stitching.optimize_rigid_2d_tiles.Rigid2DOptimizer
+    #optimizer_type: mb_aligner.stitching.optimizers.gpu.optimize_rigid_2d_tiles_gpu.GPURigid2DOptimizer
     optimizer_params:
         damping: 0.01
         huber_delta: 15
@@ -99,7 +100,7 @@ alignment:
             #filter_rate_cutoff: 0.1
             min_features_num: 10
             iterations: 1000
-            max_epsilon: 5
+            max_epsilon: 10
             min_inlier_ratio: 0.0
             min_num_inlier: 0.0
             avoid_robust_filter: True

@@ -18,6 +18,8 @@ import threading
 #import queue
 from collections import defaultdict
 import tinyr
+import importlib
+import mb_aligner.common.utils
 
 #from ..pipeline.task_runner import TaskRunner
 #import queue
@@ -244,6 +246,11 @@ class Stitcher(object):
     def __init__(self, conf):
         self._conf = conf
 
+
+        optimizer_type = conf.get('optimizer_type')
+        optimizer_params = conf.get('optimizer_params', {})
+        self._optimizer = mb_aligner.common.utils.load_plugin(optimizer_type)(**optimizer_params)
+
         self._processes_factory = ProcessesFactory(self._conf)
         # Initialize the detectors, matchers and optimizer objects
         #reader_params = conf.get('reader_params', {})
@@ -255,6 +262,7 @@ class Stitcher(object):
         #assert(reader_threads > 0)
         assert(detector_threads > 0)
         assert(matcher_threads > 0)
+
 
         # The design is as follows:
         # - There will be N1 detectors and N2 matchers (each with its own thread/process - TBD)
@@ -301,7 +309,6 @@ class Stitcher(object):
 # 
 #         #self._detector = FeaturesDetector(conf['detector_type'], **detector_params)
 #         #self._matcher = FeaturesMatcher(self._detector, **matcher_params)
-        self._optimizer = self._processes_factory.create_2d_optimizer()
 
 
     def __del__(self):
@@ -537,17 +544,17 @@ def test_detector(section_dir, conf_fname, workers_num, files_num):
 
 
 if __name__ == '__main__':
-    #section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
-    #section_num = 10
+    section_dir = '/n/home10/adisuis/Harvard/git/rh_aligner/tests/ECS_test9_cropped/images/010_S10R1/full_image_coordinates.txt'
+    section_num = 10
     #section_dir = '/n/lichtmanfs2/100um_Sept2017/EM/w01h03/100umsept2017_20170912_17-52-13/181_S181R1/full_image_coordinates.txt'
     #section_num = 181
     #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w04/W04_H04_ROI2_20180109_16-51-34/003_S3R1/full_image_coordinates.txt'
     #section_num = 3
-    section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w08/W08_H01_ROI2_20171227_00-07-19/010_S10R1/full_image_coordinates.txt'
-    section_num = 8_10
+    #section_dir = '/n/lichtmanfs2/Alex/EM/ROI2_w08/W08_H01_ROI2_20171227_00-07-19/010_S10R1/full_image_coordinates.txt'
+    #section_num = 8_10
     conf_fname = '../../conf/conf_example.yaml'
     processes_num = 8
-    out_fname = './output_stitched_sec{}.json'.format(section_num)
+    out_fname = './output_stitched_sec{}_test_optimizer.json'.format(section_num)
 # 
 #     section = Section.create_from_full_image_coordinates(section_dir, section_num)
 #     conf = Stitcher.load_conf_from_file(conf_fname)
