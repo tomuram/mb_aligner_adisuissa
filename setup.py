@@ -13,6 +13,7 @@ README = open('README.md').read()
 flags = subprocess.check_output(['pkg-config', '--cflags-only-I', 'opencv'])
 include_dirs_list = [str(flag[2:].decode('utf-8')) for flag in flags.split()]
 include_dirs_list.append('.')
+include_dirs_list.append(np.get_include())
 flags = subprocess.check_output(['pkg-config', '--libs-only-L', 'opencv'])
 library_dirs_list = [str(flag) for flag in flags]
 flags = subprocess.check_output(['pkg-config', '--libs', 'opencv'])
@@ -78,6 +79,8 @@ setup(
         "h5py>=2.5.0",
         "Cython>=0.23.3",
         "opencv_contrib_python>=3.3.0",
+        "ujson>=1.35",
+        "scikit-learn>=0.19.2",
     ],
     dependency_links = [
         'http://github.com/Rhoana/rh_renderer/tarball/master#egg=rh_renderer-0.0.1',
