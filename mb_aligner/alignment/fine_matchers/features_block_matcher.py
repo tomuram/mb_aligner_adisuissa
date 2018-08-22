@@ -18,7 +18,7 @@ from scipy.spatial import cKDTree as KDTree
 from collections import defaultdict
 from mb_aligner.common.detector import FeaturesDetector
 from mb_aligner.common.matcher import FeaturesMatcher
-from mb_aligner.common.grid_dict import GridDict
+#from mb_aligner.common.grid_dict import GridDict
 import tinyr
 
 
