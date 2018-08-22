@@ -21,7 +21,9 @@ class GPURigid2DOptimizer(object):
     # TODO - make it a class
     def __init__(self, **kwargs):
         self._damping = float(kwargs.get("damping", 0.0))
-        self._huber_delta = float(kwargs.get("huber_delta", 15))
+        self._huber_delta = kwargs.get("huber_delta", None)
+        if self._huber_delta is not None:
+            self._huber_delta = float(self._huber_delta)
         self._max_iterations = int(kwargs.get("max_iterations", 1000))
         self._init_gamma = float(kwargs.get("init_gamma", 0.00000000001))
         self._min_gamma = float(kwargs.get("min_gamma", 1e-30))
@@ -40,9 +42,13 @@ class GPURigid2DOptimizer(object):
 
         self._compute_cost_func = mod_optimize_cu.get_function("compute_cost")
         self._compute_cost_func.prepare("PPiPPPP")
+        self._compute_cost_huber_func = mod_optimize_cu.get_function("compute_cost_huber")
+        self._compute_cost_huber_func.prepare("PPiPPPfP")
         self._grad_f_contrib_func = mod_optimize_cu.get_function("grad_f_contrib")
         self._grad_f_contrib_func.prepare("PPiPPPP")
 #         self._grad_f_contrib_func.prepare("PPiPPPPPP")
+        self._grad_f_contrib_huber_func = mod_optimize_cu.get_function("grad_f_contrib_huber")
+        self._grad_f_contrib_huber_func.prepare("PPiPPPfPP")
         self._compute_new_params_func = mod_optimize_cu.get_function("compute_new_params")
         self._compute_new_params_func.prepare("PPiPfP")
 
@@ -50,6 +56,13 @@ class GPURigid2DOptimizer(object):
                             arguments="const %(tp)s *in" % {"tp": dtype_to_ctype(np.float32)})
 #         self._transform_pts_func = mod_optimize_cu.get_function("transform_points")
 #         self._transform_pts_func.prepare("PiPPP")
+
+        if self._huber_delta is None:
+            self._cost_func = self._compute_cost
+            self._grad_func = self._compute_grad_f
+        else:
+            self._cost_func = self._compute_cost_huber
+            self._grad_func = self._compute_grad_f_huber
 
     @staticmethod
     def _bdim_to_gdim(bdim, cols, rows):
@@ -168,6 +181,25 @@ class GPURigid2DOptimizer(object):
             start_idx += pair_matches_len
         return dists
 
+    def _compute_cost_huber(self, params_gpu):
+        bdim = (128, 1, 1)
+        gdim = GPURigid2DOptimizer._bdim_to_gdim(bdim, self._matches_num, 1)
+        self._compute_cost_huber_func.prepared_call(gdim, bdim,
+                          self._src_matches_gpu, self._dst_matches_gpu, self._matches_num,
+                          params_gpu.gpudata, self._src_idx_to_tile_idx_gpu, self._dst_idx_to_tile_idx_gpu,
+                          self._huber_delta,
+                          self._residuals_gpu.gpudata)
+ 
+        # Memoization seems to cause a hang when using multiprocessing and pycuda.gpuarray.sum
+#         cost_arr = pycuda.gpuarray.sum(self._residuals_gpu)
+#         cost = float(cost_arr.get())
+#         del cost_arr
+        cost_arr = self._reduce_sum_kernel(self._residuals_gpu)
+        cost = float(cost_arr.get())
+        del cost_arr
+        return cost
+
+
     def _compute_cost(self, params_gpu):
         bdim = (128, 1, 1)
         gdim = GPURigid2DOptimizer._bdim_to_gdim(bdim, self._matches_num, 1)
@@ -196,6 +228,16 @@ class GPURigid2DOptimizer(object):
 #         return pts
 
 
+    def _compute_grad_f_huber(self):
+        bdim = (128, 1, 1)
+        gdim = GPURigid2DOptimizer._bdim_to_gdim(bdim, self._matches_num, 1)
+        self._grad_f_contrib_huber_func.prepared_call(gdim, bdim,
+                          self._src_matches_gpu, self._dst_matches_gpu, self._matches_num,
+                          self._cur_params_gpu.gpudata, self._src_idx_to_tile_idx_gpu, self._dst_idx_to_tile_idx_gpu,
+                          self._huber_delta, self._residuals_gpu.gpudata,
+                          self._gradients_gpu.gpudata)
+
+
     def _compute_grad_f(self):
         bdim = (128, 1, 1)
         gdim = GPURigid2DOptimizer._bdim_to_gdim(bdim, self._matches_num, 1)
@@ -217,7 +259,7 @@ class GPURigid2DOptimizer(object):
     def _gradient_descent(self):
 
         # compute the cost
-        cur_cost = self._compute_cost(self._cur_params_gpu)
+        cur_cost = self._cost_func(self._cur_params_gpu)
         print("Initial cost: {}".format(cur_cost))
         # cur_residuals_cpu = optimize_fun(self._cur_params_gpu.get(), self._tile_names_map, self._matches, self._matches_num)
         # print("Initial cost-cpu: {}".format(np.sum(cur_residuals_cpu)))
@@ -228,7 +270,7 @@ class GPURigid2DOptimizer(object):
             #prev_p = cur_p
             prev_cost = cur_cost
             #cur_p = prev_p - gamma * grad_F_huber(huber_delta, prev_p, *args)
-            self._compute_grad_f()
+            self._grad_func()
 #             grad_cpu, per_match_src_contrib, per_match_dst_contrib = grad_F_huber(500000, self._cur_params_gpu.get(), self._tile_names_map, self._matches, self._matches_num)
 #             grad_gpu = self._gradients_gpu.get()
 #             pts1_transformed_cpu, pts2_transformed_cpu = compute_all_pts_transformed(self._matches_num, self._matches, self._cur_params_gpu.get(), self._tile_names_map)
@@ -240,7 +282,7 @@ class GPURigid2DOptimizer(object):
             #print("New params: {}".format(cur_p))
             #cur_cost = np.sum(optimize_fun(cur_p, *args))
             #cur_cost = compute_cost_huber(optimize_fun, cur_p, args, huber_delta)
-            cur_cost = self._compute_cost(self._next_params_gpu)
+            cur_cost = self._cost_func(self._next_params_gpu)
             print("New cost: {}".format(cur_cost))
             if cur_cost > prev_cost: # we took a bad step: undo it, scale down gamma, and start over
                 print("Backtracking step")
