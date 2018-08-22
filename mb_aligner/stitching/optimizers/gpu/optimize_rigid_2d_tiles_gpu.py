@@ -9,8 +9,11 @@ import scipy.optimize
 from rh_renderer.models import RigidModel
 import pycuda.gpuarray as gpuarray
 import pycuda.driver as cuda
+import pycuda.tools
 import pycuda.autoinit
 import pycuda.cumath
+from pycuda.reduction import ReductionKernel
+from pycuda.tools import dtype_to_ctype
 from pycuda.compiler import SourceModule
 #import common
 
@@ -43,6 +46,8 @@ class GPURigid2DOptimizer(object):
         self._compute_new_params_func = mod_optimize_cu.get_function("compute_new_params")
         self._compute_new_params_func.prepare("PPiPfP")
 
+        self._reduce_sum_kernel = ReductionKernel(np.float32, "0", "a+b",
+                            arguments="const %(tp)s *in" % {"tp": dtype_to_ctype(np.float32)})
 #         self._transform_pts_func = mod_optimize_cu.get_function("transform_points")
 #         self._transform_pts_func.prepare("PiPPP")
 
@@ -170,7 +175,12 @@ class GPURigid2DOptimizer(object):
                           self._src_matches_gpu, self._dst_matches_gpu, self._matches_num,
                           params_gpu.gpudata, self._src_idx_to_tile_idx_gpu, self._dst_idx_to_tile_idx_gpu,
                           self._residuals_gpu.gpudata)
-        cost_arr = pycuda.gpuarray.sum(self._residuals_gpu)
+ 
+        # Memoization seems to cause a hang when using multiprocessing and pycuda.gpuarray.sum
+#         cost_arr = pycuda.gpuarray.sum(self._residuals_gpu)
+#         cost = float(cost_arr.get())
+#         del cost_arr
+        cost_arr = self._reduce_sum_kernel(self._residuals_gpu)
         cost = float(cost_arr.get())
         del cost_arr
         return cost
@@ -211,47 +221,47 @@ class GPURigid2DOptimizer(object):
         print("Initial cost: {}".format(cur_cost))
         # cur_residuals_cpu = optimize_fun(self._cur_params_gpu.get(), self._tile_names_map, self._matches, self._matches_num)
         # print("Initial cost-cpu: {}".format(np.sum(cur_residuals_cpu)))
-#         gamma = self._init_gamma
-# 
-#         for it in range(self._max_iterations):
-#             print("Iteration {}".format(it))
-#             #prev_p = cur_p
-#             prev_cost = cur_cost
-#             #cur_p = prev_p - gamma * grad_F_huber(huber_delta, prev_p, *args)
-#             self._compute_grad_f()
-# #             grad_cpu, per_match_src_contrib, per_match_dst_contrib = grad_F_huber(500000, self._cur_params_gpu.get(), self._tile_names_map, self._matches, self._matches_num)
-# #             grad_gpu = self._gradients_gpu.get()
-# #             pts1_transformed_cpu, pts2_transformed_cpu = compute_all_pts_transformed(self._matches_num, self._matches, self._cur_params_gpu.get(), self._tile_names_map)
-# #
-# #             pts1_transformed_gpu = self._transform_points(self._src_matches_gpu, self._src_idx_to_tile_idx_gpu)
-# #             pts2_transformed_gpu = self._transform_points(self._dst_matches_gpu, self._dst_idx_to_tile_idx_gpu)
-# #             die
-#             self._compute_new_params(gamma)
-#             #print("New params: {}".format(cur_p))
-#             #cur_cost = np.sum(optimize_fun(cur_p, *args))
-#             #cur_cost = compute_cost_huber(optimize_fun, cur_p, args, huber_delta)
-#             cur_cost = self._compute_cost(self._next_params_gpu)
-#             print("New cost: {}".format(cur_cost))
-#             if cur_cost > prev_cost: # we took a bad step: undo it, scale down gamma, and start over
-#                 print("Backtracking step")
-#                 #cur_p = prev_p
-#                 cur_cost = prev_cost
-#                 gamma *= 0.5
-#             #elif float(pycuda.gpuarray.max(pycuda.cumath.fabs(self._diff_params_gpu)).get()) <= self._eps:
-#             elif float(pycuda.gpuarray.max(self._diff_params_gpu).get()) <= self._eps:
-#                 # We took a good step, but the change to the parameters vector is negligible
-#                 temp = self._cur_params_gpu
-#                 self._cur_params_gpu = self._next_params_gpu
-#                 self._next_params_gpu = temp
-#                 break
-#             else: # We took a good step, try to increase the step size a bit
-#                 gamma *= 1.1
-#                 # change between cur_params_gpu and next_params_gpu so next iteartion cur_params will be the next_params
-#                 temp = self._cur_params_gpu
-#                 self._cur_params_gpu = self._next_params_gpu
-#                 self._next_params_gpu = temp
-#             if gamma < self._min_gamma:
-#                 break
+        gamma = self._init_gamma
+
+        for it in range(self._max_iterations):
+            print("Iteration {}".format(it))
+            #prev_p = cur_p
+            prev_cost = cur_cost
+            #cur_p = prev_p - gamma * grad_F_huber(huber_delta, prev_p, *args)
+            self._compute_grad_f()
+#             grad_cpu, per_match_src_contrib, per_match_dst_contrib = grad_F_huber(500000, self._cur_params_gpu.get(), self._tile_names_map, self._matches, self._matches_num)
+#             grad_gpu = self._gradients_gpu.get()
+#             pts1_transformed_cpu, pts2_transformed_cpu = compute_all_pts_transformed(self._matches_num, self._matches, self._cur_params_gpu.get(), self._tile_names_map)
+#
+#             pts1_transformed_gpu = self._transform_points(self._src_matches_gpu, self._src_idx_to_tile_idx_gpu)
+#             pts2_transformed_gpu = self._transform_points(self._dst_matches_gpu, self._dst_idx_to_tile_idx_gpu)
+#             die
+            self._compute_new_params(gamma)
+            #print("New params: {}".format(cur_p))
+            #cur_cost = np.sum(optimize_fun(cur_p, *args))
+            #cur_cost = compute_cost_huber(optimize_fun, cur_p, args, huber_delta)
+            cur_cost = self._compute_cost(self._next_params_gpu)
+            print("New cost: {}".format(cur_cost))
+            if cur_cost > prev_cost: # we took a bad step: undo it, scale down gamma, and start over
+                print("Backtracking step")
+                #cur_p = prev_p
+                cur_cost = prev_cost
+                gamma *= 0.5
+            #elif float(pycuda.gpuarray.max(pycuda.cumath.fabs(self._diff_params_gpu)).get()) <= self._eps:
+            elif float(pycuda.gpuarray.max(self._diff_params_gpu).get()) <= self._eps:
+                # We took a good step, but the change to the parameters vector is negligible
+                temp = self._cur_params_gpu
+                self._cur_params_gpu = self._next_params_gpu
+                self._next_params_gpu = temp
+                break
+            else: # We took a good step, try to increase the step size a bit
+                gamma *= 1.1
+                # change between cur_params_gpu and next_params_gpu so next iteartion cur_params will be the next_params
+                temp = self._cur_params_gpu
+                self._cur_params_gpu = self._next_params_gpu
+                self._next_params_gpu = temp
+            if gamma < self._min_gamma:
+                break
 
         #print("The local minimum occurs at", cur_p)
         cur_p = self._cur_params_gpu.get()
