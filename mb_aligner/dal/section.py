@@ -164,6 +164,7 @@ class Section(object):
         """
         Returns the bounding box [min_x, max_x, min_y, max_y] of the section
         """
+        # TODO - update the section bounding box when the tile's bounding boxes are updated
         return self._bbox
 
     @property
@@ -186,8 +187,18 @@ class Section(object):
 
             wafer, section = self._wafer_section
             self._canonical_section_name = '{}_W{}_Sec{}'.format(str(self._layer).zfill(4), str(wafer).zfill(2), str(section).zfill(3))
+
         return self._canonical_section_name
  
+    @property
+    def canonical_section_name_no_layer(self):
+        """
+        Returns a canonical output name for the section (no suffix) w/o the layer prefix.
+        The result name will be:
+        W[wafer]_Sec[section], where wafer is 2 digits, and section is 3 digits.
+        """
+        return self.canonical_section_name[5:]
+
     def save_as_json(self, out_fname):
         """
         Saves the section as a tilespec

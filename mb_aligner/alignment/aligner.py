@@ -19,6 +19,7 @@ import tinyr
 from mb_aligner.common.section_cache import SectionCacheProcesses as SectionCache
 from mb_aligner.alignment.mesh_pts_model_exporter import MeshPointsModelExporter
 from mb_aligner.alignment.normalize_coordinates import normalize_coordinates
+from mb_aligner.common.intermediate_results_dal_pickle import IntermediateResultsDALPickle
 import importlib
 
 
@@ -53,6 +54,8 @@ class StackAligner(object):
         self._output_dir = conf.get('output_dir', '3d_output_dir')
 
         self._create_directories()
+
+        self._inter_results_dal = IntermediateResultsDALPickle(self._work_dir)
 
 
 
@@ -186,8 +189,13 @@ class StackAligner(object):
 
                 # TODO - check if the pre-match was already computed
                 logger.report_event("Performing pre-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
-                # Result will be a map between mfov index in sec1, and (the model and filtered matches to section 2)
-                pre_match_results[sec1_idx, sec2_idx] = self._pre_matcher.pre_match_sections(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], self._processes_pool)
+                prev_result_exists, prev_result = self._inter_results_dal.load_prev_results('pre_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer))
+                if prev_result_exists:
+                    pre_match_results[sec1_idx, sec2_idx] = prev_result
+                else:
+                    # Result will be a map between mfov index in sec1, and (the model and filtered matches to section 2)
+                    pre_match_results[sec1_idx, sec2_idx] = self._pre_matcher.pre_match_sections(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], self._processes_pool)
+                    self._inter_results_dal.store_result('pre_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), pre_match_results[sec1_idx, sec2_idx])
 
                 # Make sure that there are pre-matches between the two sections
                 assert(np.any([model is not None for (model, _) in pre_match_results[sec1_idx, sec2_idx].values()]))
@@ -210,7 +218,13 @@ class StackAligner(object):
                     # Perform block matching
                     # TODO - check if the fine-match was already computed
                     logger.report_event("Performing fine-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
-                    sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec_caches[sec1_idx], sec_caches[sec2_idx], pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+
+                    prev_result_exists, prev_result = self._inter_results_dal.load_prev_results('fine_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer))
+                    if prev_result_exists:
+                        sec1_sec2_matches, sec2_sec1_matches = prev_result
+                    else:
+                        sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec_caches[sec1_idx], sec_caches[sec2_idx], pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+                        self._inter_results_dal.store_result('fine_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), (sec1_sec2_matches, sec2_sec1_matches))
                     logger.report_event("fine-matching between sections {0} and {1} results: {0}->{1} {2} matches, {0}<-{1} {3} matches ".format(sec1.layer, sec2.layer, len(sec1_sec2_matches[0]), len(sec2_sec1_matches[0])), log_level=logging.INFO)
                     fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches
                     fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches
