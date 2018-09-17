@@ -191,11 +191,18 @@ class StackAligner(object):
                 logger.report_event("Performing pre-matching between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
                 prev_result_exists, prev_result = self._inter_results_dal.load_prev_results('pre_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer))
                 if prev_result_exists:
-                    pre_match_results[sec1_idx, sec2_idx] = prev_result
+                    pre_match_results[sec1_idx, sec2_idx] = prev_result['contents']
                 else:
                     # Result will be a map between mfov index in sec1, and (the model and filtered matches to section 2)
                     pre_match_results[sec1_idx, sec2_idx] = self._pre_matcher.pre_match_sections(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], self._processes_pool)
-                    self._inter_results_dal.store_result('pre_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), pre_match_results[sec1_idx, sec2_idx])
+                    intermed_results = {
+                        'metadata' : {
+                                        'sec1' : sec1.canonical_section_name_no_layer,
+                                        'sec2' : sec2.canonical_section_name_no_layer
+                                     },
+                        'contents' : pre_match_results[sec1_idx, sec2_idx]
+                    }
+                    self._inter_results_dal.store_result('pre_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), intermed_results)
 
                 # Make sure that there are pre-matches between the two sections
                 assert(np.any([model is not None for (model, _) in pre_match_results[sec1_idx, sec2_idx].values()]))
@@ -221,10 +228,18 @@ class StackAligner(object):
 
                     prev_result_exists, prev_result = self._inter_results_dal.load_prev_results('fine_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer))
                     if prev_result_exists:
-                        sec1_sec2_matches, sec2_sec1_matches = prev_result
+                        sec1_sec2_matches, sec2_sec1_matches = prev_result['contents']
                     else:
                         sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec_caches[sec1_idx], sec_caches[sec2_idx], pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
-                        self._inter_results_dal.store_result('fine_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), (sec1_sec2_matches, sec2_sec1_matches))
+                        intermed_results = {
+                            'metadata' : {
+                                            'sec1' : sec1.canonical_section_name_no_layer,
+                                            'sec2' : sec2.canonical_section_name_no_layer
+                                         },
+                            'contents' : [sec1_sec2_matches, sec2_sec1_matches]
+                        }
+ 
+                        self._inter_results_dal.store_result('fine_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), intermed_results)
                     logger.report_event("fine-matching between sections {0} and {1} results: {0}->{1} {2} matches, {0}<-{1} {3} matches ".format(sec1.layer, sec2.layer, len(sec1_sec2_matches[0]), len(sec2_sec1_matches[0])), log_level=logging.INFO)
                     fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches
                     fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches
