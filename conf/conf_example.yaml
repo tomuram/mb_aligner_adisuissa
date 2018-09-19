@@ -32,8 +32,8 @@ stitching:
         #regularizer_lambda: 0.1
         best_k_matches: 30
 
-    optimizer_type: mb_aligner.stitching.optimize_rigid_2d_tiles.Rigid2DOptimizer
-    #optimizer_type: mb_aligner.stitching.optimizers.gpu.optimize_rigid_2d_tiles_gpu.GPURigid2DOptimizer
+    #optimizer_type: mb_aligner.stitching.optimize_rigid_2d_tiles.Rigid2DOptimizer
+    optimizer_type: mb_aligner.stitching.optimizers.gpu.optimize_rigid_2d_tiles_gpu.GPURigid2DOptimizer
     optimizer_params:
         damping: 0.01
         huber_delta: 15
@@ -94,13 +94,13 @@ alignment:
             nfeatures: 10000
  
         matcher_params:
-            ROD_cutoff: 0.95
+            ROD_cutoff: 0.99
             model_index: 0 # 0 - Translation, 1 - Rigid, 3 - Affine
             #num_filtered_percent: 0.1
             #filter_rate_cutoff: 0.1
             min_features_num: 10
             iterations: 1000
-            max_epsilon: 10
+            max_epsilon: 5
             min_inlier_ratio: 0.0
             min_num_inlier: 0.0
             avoid_robust_filter: True
@@ -112,6 +112,13 @@ alignment:
             #regularizer_lambda: 0.1
             #best_k_matches: 30
 
+    fine_match_filter_type: mb_aligner.alignment.filters.fine_matches_local_affine_support_filter.FineMatchesAffineSupportFilter
+    fine_match_filter_params:
+        support_radius: 7500
+        model_index: 3
+        min_features_num: 3
+        iterations: 50
+        max_epsilon: 30
 
     
     optimizer_type: mb_aligner.alignment.optimizers.optimize_mesh_elastic.ElasticMeshOptimizer

@@ -40,9 +40,15 @@ class StackAligner(object):
 
         fine_match_type = conf.get('fine_match_type', None)
         self._fine_matcher = None
+        self._fine_matcher_filter = None
         if fine_match_type is not None:
             fine_match_params = conf.get('fine_match_params', {})
             self._fine_matcher = StackAligner.load_plugin(fine_match_type)(**fine_match_params)
+
+            fine_match_filter_type = conf.get('fine_match_filter_type', None)
+            if fine_match_filter_type is not None:
+                fine_match_filter_params = conf.get('fine_match_filter_params', {})
+                self._fine_matcher_filter = StackAligner.load_plugin(fine_match_filter_type)(**fine_match_filter_params)
 
         optimizer_type = conf.get('optimizer_type')
         optimizer_params = conf.get('optimizer_params', {})
@@ -245,6 +251,10 @@ class StackAligner(object):
                     fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches
 
 
+                    if self._fine_matcher_filter is not None:
+                        logger.report_event("Performing fine-matching filter between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
+                        fine_match_results[sec1_idx, sec2_idx] = self._fine_matcher_filter.filter_matches(fine_match_results[sec1_idx, sec2_idx])[0]
+                        fine_match_results[sec2_idx, sec1_idx] = self._fine_matcher_filter.filter_matches(fine_match_results[sec2_idx, sec1_idx])[0]
 
                 # Make sure that there are matches between the two sections
                 assert(len(fine_match_results[sec1_idx, sec2_idx]) > 0)
