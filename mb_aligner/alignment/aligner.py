@@ -76,10 +76,6 @@ class StackAligner(object):
                 os.makedirs(dir_name)
 
         create_dir(self._work_dir)
-        self._pre_matches_dir = os.path.join(self._work_dir, 'pre_matches')
-        create_dir(self._pre_matches_dir)
-        self._fine_matches_dir = os.path.join(self._work_dir, 'fine_matches')
-        create_dir(self._fine_matches_dir)
         self._post_opt_dir = os.path.join(self._work_dir, 'post_optimization_{}'.format(os.path.basename(self._output_dir)))
         create_dir(self._post_opt_dir)
         create_dir(self._output_dir)
@@ -253,8 +249,26 @@ class StackAligner(object):
 
                     if self._fine_matcher_filter is not None:
                         logger.report_event("Performing fine-matching filter between sections {} and {}".format(sec1.layer, sec2.layer), log_level=logging.INFO)
-                        fine_match_results[sec1_idx, sec2_idx] = self._fine_matcher_filter.filter_matches(fine_match_results[sec1_idx, sec2_idx])[0]
-                        fine_match_results[sec2_idx, sec1_idx] = self._fine_matcher_filter.filter_matches(fine_match_results[sec2_idx, sec1_idx])[0]
+                        prev_result_exists, prev_result = self._inter_results_dal.load_prev_results('fine_matches_filtered', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer))
+                        if prev_result_exists:
+                            sec1_sec2_matches_filtered, sec2_sec1_matches_filtered = prev_result['contents']
+                        else:
+                            sec1_sec2_matches_filtered = self._fine_matcher_filter.filter_matches(fine_match_results[sec1_idx, sec2_idx], self._processes_pool)
+                            sec2_sec1_matches_filtered = self._fine_matcher_filter.filter_matches(fine_match_results[sec2_idx, sec1_idx], self._processes_pool)
+
+                            intermed_results = {
+                                'metadata' : {
+                                                'sec1' : sec1.canonical_section_name_no_layer,
+                                                'sec2' : sec2.canonical_section_name_no_layer
+                                             },
+                                'contents' : [sec1_sec2_matches_filtered, sec2_sec1_matches_filtered]
+                            }
+     
+                            self._inter_results_dal.store_result('fine_matches_filtered', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), intermed_results)
+
+
+                        fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches_filtered
+                        fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches_filtered
 
                 # Make sure that there are matches between the two sections
                 assert(len(fine_match_results[sec1_idx, sec2_idx]) > 0)
