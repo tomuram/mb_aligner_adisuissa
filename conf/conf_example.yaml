@@ -48,6 +48,7 @@ alignment:
     processes_num: 12
     work_dir: '3d_work_dir'
     output_dir: '3d_output_dir'
+    process_lru_size: 50
 
     pre_match_type: mb_aligner.alignment.pre_matchers.full_section_then_mfovs_thumbs_blobs.PreMatch3DFullSectionThenMfovsThumbsBlobs
     pre_match_params:

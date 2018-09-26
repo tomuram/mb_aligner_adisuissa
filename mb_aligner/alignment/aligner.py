@@ -21,6 +21,8 @@ from mb_aligner.alignment.mesh_pts_model_exporter import MeshPointsModelExporter
 from mb_aligner.alignment.normalize_coordinates import normalize_coordinates
 from mb_aligner.common.intermediate_results_dal_pickle import IntermediateResultsDALPickle
 import importlib
+import gc
+from mb_aligner.common.thread_local_storage_lru import ThreadLocalStorageLRU
 
 
 class StackAligner(object):
@@ -29,10 +31,12 @@ class StackAligner(object):
         self._conf = conf
 
         #self._processes_factory = ProcessesFactory(self._conf)
+        if 'process_lru_size' in conf.keys():
+            ThreadLocalStorageLRU.LRU_SIZE = conf.get('process_lru_size')
         self._processes_num = conf.get('processes_num', 1)
         assert(self._processes_num > 0)
-        self._processes_pool = mp.Pool(processes=self._processes_num)
-        #self._processes_pool = ThreadPool(processes=self._processes_num)
+        self._processes_pool = None
+        self._restart_pool()
         # Initialize the pre_matcher, block_matcher and optimization algorithms
         pre_match_type = conf.get('pre_match_type')
         pre_match_params = conf.get('pre_match_params', {})
@@ -69,6 +73,15 @@ class StackAligner(object):
     def __del__(self):
         self._processes_pool.close()
         self._processes_pool.join()
+
+    def _restart_pool(self):
+        if self._processes_pool is not None:
+            self._processes_pool.close()
+            self._processes_pool.join()
+            self._processes_pool = None
+        self._processes_pool = mp.Pool(processes=self._processes_num)
+        #self._processes_pool = ThreadPool(processes=self._processes_num)
+        print("Processes pool restarted")
 
     def _create_directories(self):
         def create_dir(dir_name):
@@ -232,7 +245,7 @@ class StackAligner(object):
                     if prev_result_exists:
                         sec1_sec2_matches, sec2_sec1_matches = prev_result['contents']
                     else:
-                        sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec_caches[sec1_idx], sec_caches[sec2_idx], pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+                        sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
                         intermed_results = {
                             'metadata' : {
                                             'sec1' : sec1.canonical_section_name_no_layer,
@@ -269,10 +282,17 @@ class StackAligner(object):
 
                         fine_match_results[sec1_idx, sec2_idx] = sec1_sec2_matches_filtered
                         fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches_filtered
+                        logger.report_event("fine-matching-filter between sections {0} and {1} results: {0}->{1} {2} matches, {0}<-{1} {3} matches ".format(sec1.layer, sec2.layer, len(sec1_sec2_matches_filtered[0]), len(sec2_sec1_matches_filtered[0])), log_level=logging.INFO)
 
                 # Make sure that there are matches between the two sections
                 assert(len(fine_match_results[sec1_idx, sec2_idx]) > 0)
                 assert(len(fine_match_results[sec2_idx, sec1_idx]) > 0)
+
+            # No need to keep the caches of sec1, can free up some memory
+            if sec1.layer in sec_caches:
+                del sec_caches[sec1.layer]
+                #self._restart_pool()
+                gc.collect()
 
         # optimize the matches
         logger.report_event("Optimizing the matches...", log_level=logging.INFO)

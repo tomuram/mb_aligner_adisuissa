@@ -13,7 +13,7 @@ import argparse
 from mb_aligner.common import utils
 from rh_renderer import models
 import multiprocessing as mp
-import threading
+from mb_aligner.common.thread_local_storage_lru import ThreadLocalStorageLRU
 from scipy.spatial import cKDTree as KDTree
 from collections import defaultdict
 from mb_aligner.common.detector import FeaturesDetector
@@ -27,8 +27,6 @@ import tinyr
 # pyximport.install()
 # from ..common import cv_wrap_module
 
-
-threadLocal = threading.local()
 
 class FeaturesBlockMatcherDispatcher(object):
 
@@ -312,12 +310,21 @@ class FeaturesBlockMatcherDispatcher(object):
 #             setattr(threadLocal, fine_matcher_key, fine_matcher)
 
         fine_matcher_key = "block_matcher_{},{},{}".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx[0])
-        fine_matcher = getattr(threadLocal, fine_matcher_key, None)
-        if fine_matcher is None:
+        thread_local_store = ThreadLocalStorageLRU()
+        if fine_matcher_key in thread_local_store.keys():
+            fine_matcher = thread_local_store[fine_matcher_key]
+        else:
             fine_matcher = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher(sec1, sec2, sec1_to_sec2_mfov_transform, sec1_cache_features, sec2_cache_features, **matcher_args)
             if debug_dir is not None:
                 fine_matcher.set_debug_dir(debug_dir)
-            setattr(threadLocal, fine_matcher_key, fine_matcher)
+            thread_local_store[fine_matcher_key] = fine_matcher
+
+#         fine_matcher = getattr(threadLocal, fine_matcher_key, None)
+#         if fine_matcher is None:
+#             fine_matcher = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher(sec1, sec2, sec1_to_sec2_mfov_transform, sec1_cache_features, sec2_cache_features, **matcher_args)
+#             if debug_dir is not None:
+#                 fine_matcher.set_debug_dir(debug_dir)
+#             setattr(threadLocal, fine_matcher_key, fine_matcher)
 
         logger.report_event("Features-Matching+PMCC layers: {} with {} (mfov1 {}) {} mesh points1, {} mesh points2".format(sec1.canonical_section_name, sec2.canonical_section_name, sec1_mfov_tile_idx, len(sec1_mfov_mesh_pts), len(sec2_mfov_mesh_pts)), log_level=logging.INFO)
         logger.report_event("Features-Matching+PMCC layers: {} -> {}".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.INFO)
@@ -337,12 +344,20 @@ class FeaturesBlockMatcherDispatcher(object):
 
     @staticmethod
     def compute_features(tile, out_dict, out_dict_key, detector_type, detector_kwargs):
-        detector = getattr(threadLocal, FeaturesBlockMatcherDispatcher.DETECTOR_KEY, None)
-        if detector is None:
+        thread_local_store = ThreadLocalStorageLRU()
+        if FeaturesBlockMatcherDispatcher.DETECTOR_KEY in thread_local_store.keys():
+            detector = thread_local_store[FeaturesBlockMatcherDispatcher.DETECTOR_KEY]
+        else:
             #detector_type = FeaturesDetector.Type.ORB.name
             detector = FeaturesDetector(detector_type, **detector_kwargs)
+            thread_local_store[FeaturesBlockMatcherDispatcher.DETECTOR_KEY] = detector
 
-            setattr(threadLocal, FeaturesBlockMatcherDispatcher.DETECTOR_KEY, detector)
+#         detector = getattr(threadLocal, FeaturesBlockMatcherDispatcher.DETECTOR_KEY, None)
+#         if detector is None:
+#             #detector_type = FeaturesDetector.Type.ORB.name
+#             detector = FeaturesDetector(detector_type, **detector_kwargs)
+# 
+#             setattr(threadLocal, FeaturesBlockMatcherDispatcher.DETECTOR_KEY, detector)
 
         # Load the image
         img = tile.image

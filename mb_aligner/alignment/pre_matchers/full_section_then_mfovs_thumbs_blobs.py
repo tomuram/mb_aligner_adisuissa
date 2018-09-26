@@ -6,10 +6,9 @@ from mb_aligner.common.matcher import FeaturesMatcher
 from rh_logger.api import logger
 import logging
 import rh_logger
-import threading
+from mb_aligner.common.thread_local_storage_lru import ThreadLocalStorageLRU
 import tinyr
 
-threadLocal = threading.local()
 
 class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
     """
@@ -32,11 +31,19 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
         and returns the locations of the blobs (in stitched global coordinates), and their
         descriptors.
         """
-        blob_detector = getattr(threadLocal, 'blob_detector', None)
-        if blob_detector is None:
+        thread_local_store = ThreadLocalStorageLRU()
+        if 'blob_detector' not in thread_local_store.keys():
             # Initialize the blob_detector, and store it in the local thread storage
             blob_detector = BlobDetector2D.create_detector(**blob_detector_args)
-            threadLocal.blob_detector = blob_detector
+            thread_local_store['blob_detector'] = blob_detector
+        else:
+            blob_detector = thread_local_store['blob_detector']
+            
+#         blob_detector = getattr(threadLocal, 'blob_detector', None)
+#         if blob_detector is None:
+#             # Initialize the blob_detector, and store it in the local thread storage
+#             blob_detector = BlobDetector2D.create_detector(**blob_detector_args)
+#             threadLocal.blob_detector = blob_detector
 
 
         all_kps_descs = [[], []]
@@ -127,11 +134,20 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
         Matches the features in mfovs1 (of sec1) to the features in mfovs2 (of sec2).
         This method is run by a process that loads the matcher from its local thread storage.
         """
-        matcher = getattr(threadLocal, 'matcher', None)
-        if matcher is None:
+        
+        thread_local_store = ThreadLocalStorageLRU()
+        if 'matcher' in thread_local_store.keys():
+            matcher = thread_local_store['matcher']
+        else:
             # Initialize the matcher, and store it in the local thread storage
             matcher = FeaturesMatcher(BlobDetector2D.create_matcher, **matcher_params)
-            threadLocal.matcher = matcher
+            thread_local_store['matcher'] = matcher
+            
+#         matcher = getattr(threadLocal, 'matcher', None)
+#         if matcher is None:
+#             # Initialize the matcher, and store it in the local thread storage
+#             matcher = FeaturesMatcher(BlobDetector2D.create_matcher, **matcher_params)
+#             threadLocal.matcher = matcher
 
         def get_kps_descs(mfovs, sec_cache):
             mfovs = list(mfovs)
