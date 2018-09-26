@@ -97,8 +97,8 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
     def collect_all_features(sec_cache):
 
         # TODO - need to see if pre-allocation can improve speed
-        all_kps_arrays = [kps_descs[0] for kps_descs in sec_cache["pre_match_blobs"].values()]
-        all_descs_arrays = [kps_descs[1] for kps_descs in sec_cache["pre_match_blobs"].values()]
+        all_kps_arrays = [kps_descs[0] for kps_descs in sec_cache["pre_match_blobs"].values() if len(kps_descs[0]) > 0]
+        all_descs_arrays = [kps_descs[1] for kps_descs in sec_cache["pre_match_blobs"].values() if len(kps_descs[1]) > 0]
         return np.vstack(all_kps_arrays), np.vstack(all_descs_arrays)
 
     @staticmethod
@@ -183,10 +183,10 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
         
         global_model, global_filtered_matches = self._matcher.match_and_filter(sec1_kps, sec1_descs, sec2_kps, sec2_descs)
         if global_model is None:
-            logger.report_event("No global model found between section {} (all mfovs) and section {} (all mfovs)".format(sec1.layer, sec2.layer), log_level=logging.WARNING)
+            logger.report_event("No global model found between section {} (all mfovs) and section {} (all mfovs)".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.WARNING)
             # TODO - write to log, and return None
             return None
-        logger.report_event("Global model found between section {} (all mfovs) and section {} (all mfovs):\n{}".format(sec1.layer, sec2.layer, global_model.get_matrix()), log_level=logging.INFO)
+        logger.report_event("Global model found between section {} (all mfovs) and section {} (all mfovs):\n{}".format(sec1.canonical_section_name, sec2.canonical_section_name, global_model.get_matrix()), log_level=logging.INFO)
 
         # Create section2 tile's bounding box rtree, so it would be faster to search it
         # TODO - maybe store it in cache, because it might be used by other comparisons of this section
@@ -199,7 +199,7 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
         for mfov1 in sec1.mfovs():
             # find overlapping mfovs in sec2
             mfovs2 = PreMatch3DFullSectionThenMfovsThumbsBlobs.get_overlapping_mfovs(mfov1, sec2, global_model, sec2_rtree)
-            logger.report_event("Finding local model between section {} (mfov {}) and section {} (mfovs {})".format(sec1.layer, mfov1.mfov_index, sec2.layer, mfovs2), log_level=logging.INFO)
+            logger.report_event("Finding local model between section {} (mfov {}) and section {} (mfovs {})".format(sec1.canonical_section_name, mfov1.mfov_index, sec2.canonical_section_name, mfovs2), log_level=logging.INFO)
             # Note - the match_mfovs_features only reads from secX_cache, so we can send secX_cache._dict (the manager's part of that)
             res = pool.apply_async(PreMatch3DFullSectionThenMfovsThumbsBlobs.match_mfovs_features, (self._kwargs.get("matcher_params", {}), sec1_cache._dict, sec2_cache._dict, [mfov1.mfov_index], mfovs2))
             async_results.append(res)
@@ -210,9 +210,9 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
             mfov_index = mfovs1[0]
 
             if mfovs1_model is None:
-                logger.report_event("No local model found between section {} (mfov {}) and section {}".format(sec1.layer, mfov_index, sec2.layer), log_level=logging.INFO)
+                logger.report_event("No local model found between section {} (mfov {}) and section {}".format(sec1.canonical_section_name, mfov_index, sec2.canonical_section_name), log_level=logging.INFO)
             else:
-                logger.report_event("Found local model between section {} (mfov {}) and section {}:\n{}".format(sec1.layer, mfov_index, sec2.layer, mfovs1_model.get_matrix()), log_level=logging.INFO)
+                logger.report_event("Found local model between section {} (mfov {}) and section {}:\n{}".format(sec1.canonical_section_name, mfov_index, sec2.canonical_section_name, mfovs1_model.get_matrix()), log_level=logging.INFO)
             pre_match_res[mfov_index] = (mfovs1_model, mfovs1_filtered_matches)
 
         return pre_match_res
