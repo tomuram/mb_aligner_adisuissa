@@ -37,6 +37,9 @@ class StackAligner(object):
         assert(self._processes_num > 0)
         self._processes_pool = None
         self._restart_pool()
+
+        self._continue_on_error = conf.get('continue_on_error', False)
+
         # Initialize the pre_matcher, block_matcher and optimization algorithms
         pre_match_type = conf.get('pre_match_type')
         pre_match_params = conf.get('pre_match_params', {})
@@ -190,11 +193,21 @@ class StackAligner(object):
 
         # TODO - read the intermediate results directories (so we won't recompute steps)
 
+        error_found = False
+
         # for each pair of neighboring sections (up to compare_distance distance)
         pre_match_results = {}
         fine_match_results = {}
         sec_caches = defaultdict(SectionCache)
+        prev_sec = None
         for sec1_idx, sec1 in enumerate(sections):
+            # No need to keep the caches of sec1, can free up some memory
+            if prev_sec is not None and prev_sec.layer in sec_caches:
+                del sec_caches[prev_sec.layer]
+                gc.collect()
+            prev_sec = sec1
+
+            # Compare to neighboring sections
             for j in range(1, self._compare_distance + 1):
                 sec2_idx = sec1_idx + j
                 if sec2_idx >= len(sections):
@@ -210,6 +223,16 @@ class StackAligner(object):
                 else:
                     # Result will be a map between mfov index in sec1, and (the model and filtered matches to section 2)
                     pre_match_results[sec1_idx, sec2_idx] = self._pre_matcher.pre_match_sections(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], self._processes_pool)
+
+                    # Make sure that there are pre-matches between the two sections
+                    if pre_match_results[sec1_idx, sec2_idx] is None or len(pre_match_results[sec1_idx, sec2_idx]) == 0 or np.all([model is None for (model, _) in pre_match_results[sec1_idx, sec2_idx].values()]):
+                        if self._continue_on_error:
+                            error_found = True
+                            logger.report_event("No pre-match between the sections {} and {} were found".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), log_level=logging.ERROR)
+                            continue
+                        else:
+                            raise Exception("No pre-match between the sections {} and {} were found".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer))
+                    # Save the intermediate results
                     intermed_results = {
                         'metadata' : {
                                         'sec1' : sec1.canonical_section_name_no_layer,
@@ -219,8 +242,6 @@ class StackAligner(object):
                     }
                     self._inter_results_dal.store_result('pre_matches', '{}_{}'.format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer), intermed_results)
 
-                # Make sure that there are pre-matches between the two sections
-                assert(np.any([model is not None for (model, _) in pre_match_results[sec1_idx, sec2_idx].values()]))
 
         
                 layout['neighbors'][sec1_idx].add(sec2_idx)
@@ -246,6 +267,16 @@ class StackAligner(object):
                         sec1_sec2_matches, sec2_sec1_matches = prev_result['contents']
                     else:
                         sec1_sec2_matches, sec2_sec1_matches = self._fine_matcher.match_layers_fine_matching(sec1, sec2, sec_caches[sec1.layer], sec_caches[sec2.layer], pre_match_results[sec1_idx, sec2_idx], self._processes_pool)
+
+                        # make sure enough fine matches were found
+                        if len(sec1_sec2_matches[0]) == 0 or len(sec2_sec1_matches[0]) == 0:
+                            if self._continue_on_error:
+                                error_found = True
+                                logger.report_event("No fine matches found between the sections {} and {} ({} in 1->2 and {} in 1<-2)".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer, len(sec1_sec2_matches[0]), len(sec2_sec1_matches[0])), log_level=logging.ERROR)
+                                continue
+                            else:
+                                raise Exception("No fine matches found between the sections {} and {} ({} in 1->2 and {} in 1<-2)".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer, len(sec1_sec2_matches[0]), len(sec2_sec1_matches[0])))
+
                         intermed_results = {
                             'metadata' : {
                                             'sec1' : sec1.canonical_section_name_no_layer,
@@ -269,6 +300,16 @@ class StackAligner(object):
                             sec1_sec2_matches_filtered = self._fine_matcher_filter.filter_matches(fine_match_results[sec1_idx, sec2_idx], self._processes_pool)
                             sec2_sec1_matches_filtered = self._fine_matcher_filter.filter_matches(fine_match_results[sec2_idx, sec1_idx], self._processes_pool)
 
+                            # make sure enough fine matches were found after filter
+                            if len(sec1_sec2_matches_filtered[0]) == 0 or len(sec2_sec1_matches_filtered[0]) == 0:
+                                if self._continue_on_error:
+                                    error_found = True
+                                    logger.report_event("No post-filter fine matches found between the sections {} and {} ({} in 1->2 and {} in 1<-2)".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer, len(sec1_sec2_matches_filtered[0]), len(sec2_sec1_matches_filtered[0])), log_level=logging.ERROR)
+                                    continue
+                                else:
+                                    raise Exception("No post-filter fine matches found between the sections {} and {} ({} in 1->2 and {} in 1<-2)".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer, len(sec1_sec2_matches_filtered[0]), len(sec2_sec1_matches_filtered[0])))
+
+
                             intermed_results = {
                                 'metadata' : {
                                                 'sec1' : sec1.canonical_section_name_no_layer,
@@ -284,15 +325,9 @@ class StackAligner(object):
                         fine_match_results[sec2_idx, sec1_idx] = sec2_sec1_matches_filtered
                         logger.report_event("fine-matching-filter between sections {0} and {1} results: {0}->{1} {2} matches, {0}<-{1} {3} matches ".format(sec1.layer, sec2.layer, len(sec1_sec2_matches_filtered[0]), len(sec2_sec1_matches_filtered[0])), log_level=logging.INFO)
 
-                # Make sure that there are matches between the two sections
-                assert(len(fine_match_results[sec1_idx, sec2_idx]) > 0)
-                assert(len(fine_match_results[sec2_idx, sec1_idx]) > 0)
 
-            # No need to keep the caches of sec1, can free up some memory
-            if sec1.layer in sec_caches:
-                del sec_caches[sec1.layer]
-                #self._restart_pool()
-                gc.collect()
+        if error_found:
+            raise Exception("Cannot run optimization, because an error occured previously but was skipped")
 
         # optimize the matches
         logger.report_event("Optimizing the matches...", log_level=logging.INFO)
