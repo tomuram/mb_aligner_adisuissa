@@ -15,7 +15,7 @@ class Mfov(object):
         self._mfov_idx = None
         self._layer = None
         self._bbox = None
-        print('Creating mfov')
+        #print('Creating mfov')
 
         # initialize values using kwargs
         if len(kwargs) > 0:
@@ -27,10 +27,10 @@ class Mfov(object):
                 self._mfov_idx = kwargs["mfov"]
         elif len(self._tiles) > 0:
             self._mfov_idx = self._tiles[0].mfov_index
-            print('Here', self._mfov_idx)
+            #print('Here', self._mfov_idx)
             self._layer = self._tiles[0].layer
             self._compute_bbox_from_tiles()
-        print('There', self._mfov_idx)
+        #print('There', self._mfov_idx)
 
 
     @classmethod
