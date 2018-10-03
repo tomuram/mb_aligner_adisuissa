@@ -26,15 +26,7 @@ class IntermediateResultsDALPickle(object):
     def load_prev_results(self, result_type, result_id):
         fname = self._make_canonical_fname(result_type, result_id)
 
-        # Check that the prev result file exists
-        if not os.path.exists(fname):
-            return False, None
-
-        # load the contents, and return it
-        with open(fname, 'rb') as in_f:
-            contents = pickle.load(in_f)
-
-        return True, contents
+        return IntermediateResultsDALPickle.load_prev_single_file_results(fname)
 
     def store_result(self, result_type, result_id, contents):
         # ensure that the result type folder exists
@@ -51,4 +43,18 @@ class IntermediateResultsDALPickle(object):
     @staticmethod
     def create_dir(dir_name):
         os.makedirs(dir_name, exist_ok=True)
+
+    @staticmethod
+    def load_prev_single_file_results(fname):
+        # Check that the prev result file exists
+        if not os.path.exists(fname):
+            return False, None
+
+        # load the contents, and return it
+        with open(fname, 'rb') as in_f:
+            contents = pickle.load(in_f)
+
+        return True, contents
+
+
 
