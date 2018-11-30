@@ -60,9 +60,10 @@ def draw_circles(img, start_point, pts, scale):
 def load_tilespecs(ts_fname):
     with open(ts_fname, 'rt') as in_f:
         tilespec = ujson.load(in_f)
-    #wafer_num = int(os.path.basename(ts_fname).split('_')[0].split('W')[1])
-    wafer_num = 1
-    sec_num = int(os.path.basename(ts_fname).split('_')[-1].split('S')[1].split('R')[0])
+    wafer_num = int(os.path.basename(ts_fname).split('_')[0].split('W')[1])
+    #wafer_num = 1
+    #sec_num = int(os.path.basename(ts_fname).split('_')[-1].split('S')[1].split('R')[0])
+    sec_num = int(os.path.basename(ts_fname).split('Sec')[1].split('_')[0])
     section = Section.create_from_tilespec(tilespec, wafer_section=(wafer_num, sec_num))
     return tilespec, section
 
@@ -78,9 +79,11 @@ def visualize_post_pmcc_mfov_points(pmcc_matches_fname, ts1_fname, ts2_fname, mf
 
     if sec1.canonical_section_name_no_layer == intermed_results['metadata']['sec1'] and \
        sec2.canonical_section_name_no_layer == intermed_results['metadata']['sec2']:
+        print("loading matches between: {} and {}".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer))
         matches = intermed_results['contents'][0]
     elif sec1.canonical_section_name_no_layer == intermed_results['metadata']['sec2'] and \
        sec2.canonical_section_name_no_layer == intermed_results['metadata']['sec1']:
+        print("loading matches between: {} and {}".format(sec2.canonical_section_name_no_layer, sec1.canonical_section_name_no_layer))
         matches = intermed_results['contents'][1]
     else:
         raise Exception("The sections canoncical names didn't match the pmcc matches file contents (sec1: {}, sec2: {}, pmcc_file1: {}, pmcc_file2: {}".format(sec1.canonical_section_name_no_layer, sec2.canonical_section_name_no_layer, intermed_results['metadata']['sec1'], intermed_results['metadata']['sec2']))
@@ -95,8 +98,15 @@ def visualize_post_pmcc_mfov_points(pmcc_matches_fname, ts1_fname, ts2_fname, mf
         print("No mfov information in matches file for ts1, taking the relevant tiles from entire section")
         ts1_relevant = find_relevant_tilespecs(ts1, matches[0])
     else:
-        ts1_relevant = section1.get_mfov(mfov).tilespec
+        ts1_relevant = sec1.get_mfov(mfov).tilespec
+        mfov1_min_xy = np.min([[ts["bbox"][0], ts["bbox"][2]] for ts in ts1_relevant], axis=0)
+        mfov1_max_xy = np.max([[ts["bbox"][1], ts["bbox"][3]] for ts in ts1_relevant], axis=0)
+        # restrict the matches to only the relevant matches
+        restricted_matches_mask = (mfov1_min_xy[0] <= matches[0][:, 0]) & (matches[0][:, 0] <= mfov1_max_xy[0])
+        restricted_matches_mask &= (mfov1_min_xy[1] <= matches[0][:, 1]) & (matches[0][:, 1] <= mfov1_max_xy[1])
+        matches = np.array([matches[0][restricted_matches_mask], matches[1][restricted_matches_mask]])
     ts2_relevant = find_relevant_tilespecs(ts2, matches[1])
+    print("Relevant section2 tiles {}: {}".format(len(ts2_relevant), [(ts["mfov"], ts["tile_index"]) for ts in ts2_relevant]))
 
 
     # Create the (lazy) renderers for the two sections
