@@ -37,7 +37,7 @@ class MeshPointsModelExporter(object):
             p_bbox = [p[0] - 0.5, p[0] + 0.5, p[1] - 0.5, p[1] + 0.5]
             orig_pts_rtree.insert(p_idx, p_bbox)
 
-        tiles_to_remove = []
+        tiles_to_remove = set()
         for tile_idx, tile in enumerate(section.tiles()):
             # Compute the tile's (post-stitching, pre-alignment) bbox with halo
             bbox_with_halo = list(tile.bbox)
@@ -57,13 +57,17 @@ class MeshPointsModelExporter(object):
                 tiles_to_remove.append((tile_idx, tile))
                 continue
 
-            tile_model = models.PointsTransformModel((orig_pts[filtered_pts_idxs], new_pts[filtered_pts_idxs]))
-            tile.add_transform(tile_model)
+            try:
+                tile_model = models.PointsTransformModel((orig_pts[filtered_pts_idxs], new_pts[filtered_pts_idxs]))
+                tile.add_transform(tile_model)
+            except:
+                logger.report_event("Found an error after applying the transformation on the boundaries of tile: {}, skipping the tile".format(tile.img_fname), log_level=logging.WARN)
+                tiles_to_remove.add((tile.mfov_index, tile.tile_index))
 
-        # TODO - remove tiles that no transformation was found for
-#         for tile_index in sorted(tiles_to_remove, reverse=True):
-#             logger.report_event("Removing tile {} from {}".format(data[tile_index]["mipmapLevels"]["0"]["imageUrl"], out_fname), log_level=logging.INFO)
-#             del data[tile_index]
+        # remove tiles that no transformation was found for
+        for mfov_tile_index in tiles_to_remove:
+            logger.report_event("Removing tile {} from {}".format(mfov_tile_index, section.canonical_section_name_no_layer), log_level=logging.INFO)
+            section.remove_tile(*mfov_tile_index)
 
 
 

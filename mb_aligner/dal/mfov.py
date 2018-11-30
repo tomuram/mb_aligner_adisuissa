@@ -107,3 +107,15 @@ class Mfov(object):
                 return t
         return None
 
+    def remove_tile(self, tile_index):
+        '''
+        Removes a single tile from the mfov.
+        '''
+        to_remove_idx = None
+        for t_idx, t in enumerate(self.tiles()):
+            if t.tile_index == tile_index:
+                to_remove_idx = t_idx
+                break
+
+        self._tiles.pop(to_remove_idx)
+

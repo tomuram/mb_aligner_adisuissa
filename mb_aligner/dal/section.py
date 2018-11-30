@@ -228,6 +228,12 @@ class Section(object):
             for tile in mfov.tiles():
                 yield tile
 
+    def remove_tile(self, mfov_index, tile_index):
+        '''
+        Removes a single tile from the section.
+        '''
+        mfov = self._mfovs_dict[mfov_index]
+        mfov.remove_tile(tile_index)
        
 
 if __name__ == '__main__':

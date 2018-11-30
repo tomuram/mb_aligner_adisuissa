@@ -277,7 +277,7 @@ class ElasticMeshOptimizer(object):
         pre_alignment_block_lo = max(1, block_lo)
         # on all blocks after the first, should avoid a pre affine transformation of anything that was already pre-aligned
         if block_lo > 0:
-            pre_alignment_block_lo = min(block_lo + (block_size - block_step), block_hi)
+            pre_alignment_block_lo = min(block_lo + (self._block_size - self._block_step), block_hi)
         for active_sec_idx in range(pre_alignment_block_lo, block_hi):
             active_sec_name = layout['sections'][active_sec_idx].canonical_section_name
             logger.report_event("Before affine (sec {}): {}".format(active_sec_name, ts_mean_offsets(meshes, links, active_sec_idx, plot=False)), log_level=logging.INFO)
@@ -496,7 +496,7 @@ class ElasticMeshOptimizer(object):
             if last_block:
                 exported_sec_idxs = range(block_lo, block_hi)
             else:
-                exported_sec_idxs = range(block_lo, block_hi - (block_size - block_step))
+                exported_sec_idxs = range(block_lo, block_hi - (self._block_size - self._block_step))
             for active_sec_idx in exported_sec_idxs:
                 #out_positions = [meshes[active_sec_idx].orig_pts,
                 #                 meshes[active_sec_idx].pts]
@@ -505,11 +505,11 @@ class ElasticMeshOptimizer(object):
             # Checkpoint the current block (if it is not the last)
             if self._checkpoints_dir is not None and not last_block:
                 # Only save the ones that are in the overlap or are connected to the overlapping tilespecs
-                relevant_sec_idxs = set(list(range(block_hi - (block_size - block_step), block_hi)))
-                for sec_idx in range(block_hi - (block_size - block_step), block_hi):
+                relevant_sec_idxs = set(list(range(block_hi - (self._block_size - self._block_step), block_hi)))
+                for sec_idx in range(block_hi - (self._block_size - self._block_step), block_hi):
                     for neighbor_sec_idx in layout['neighbors'][sec_idx]:
                         relevant_sec_idxs.add(neighbor_sec_idx)
-                self._save_checkpoint_data(block_lo / block_step, relevant_sec_idxs, meshes, links, norm_weights, structural_meshes)
+                self._save_checkpoint_data(block_lo / self._block_step, relevant_sec_idxs, meshes, links, norm_weights, structural_meshes)
 
 
 

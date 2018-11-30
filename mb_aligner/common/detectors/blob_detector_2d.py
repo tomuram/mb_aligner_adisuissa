@@ -47,7 +47,7 @@ class BlobDetector2D(object):
         params.filterByInertia = False
         if "minInertiaRatio" in args:
             params.filterByInertia = True
-            params.minInertiaRatio = args.get("minCircularity")
+            params.minInertiaRatio = args.get("minInertiaRatio")
         detector = PyOrientedSimpleBlobDetector(params)
         return detector
 
