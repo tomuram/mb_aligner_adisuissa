@@ -81,6 +81,7 @@ setup(
         "opencv_contrib_python>=3.3.0",
         "ujson>=1.35",
         "scikit-learn>=0.19.2",
+        "lru-dict>=1.1.6",
     ],
     dependency_links = [
         'http://github.com/Rhoana/rh_renderer/tarball/master#egg=rh_renderer-0.0.1',

@@ -9,3 +9,4 @@ rh_logger==2.0.0
 opencv_contrib_python==3.3.0
 ujson==1.35
 scikit-learn==0.19.2
+lru-dict==1.1.6
