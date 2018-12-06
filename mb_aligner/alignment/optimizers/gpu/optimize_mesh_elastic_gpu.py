@@ -33,11 +33,12 @@ from pycuda.reduction import ReductionKernel
 from pycuda.tools import dtype_to_ctype
 from pycuda.compiler import SourceModule
 
-# import pyximport
-# pyximport.install()
-# import mb_aligner.alignment.optimizers.mesh_derivs_elastic as mesh_derivs_elastic
+import pyximport
+pyximport.install()
+import mb_aligner.alignment.optimizers.mesh_derivs_elastic as mesh_derivs_elastic
 
-FLOAT_TYPE = np.float64
+#FLOAT_TYPE = np.float64
+FLOAT_TYPE = np.float32
 
 SHOW_FINAL_MO = True
 SHOW_BLOCK_FINAL_MO = True
@@ -136,7 +137,7 @@ class ElasticMeshOptimizerGPU(object):
 
         # initialize the access to the gpu, and the needed kernels
         self._init_kernels()
-        self._gpu_arrays = {}
+        self._create_gpu_array_holders()
 
     def _init_kernels(self):
         dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -156,6 +157,17 @@ class ElasticMeshOptimizerGPU(object):
 
         self._reduce_sum_kernel = ReductionKernel(np.float32, "0", "a+b",
                             arguments="const %(tp)s *in" % {"tp": dtype_to_ctype(np.float32)})
+
+
+    def _create_gpu_array_holders(self):
+        self._gpu_arrays = {
+                "meshes" : {},
+                "structural_meshes" : {},
+                "links" : {}
+            }
+
+    def _delete_gpu_array_holders(self):
+        del self._gpu_arrays
 
     @staticmethod
     def _bdim_to_gdim(bdim, cols, rows):
@@ -357,21 +369,35 @@ class ElasticMeshOptimizerGPU(object):
             tran = tran * (1.0 / count)
             #print("rot:\n{}\ntran:\n{}".format(rot, tran))
             # transform the points
-            meshes[active_sec_idx].pts = np.dot(meshes[active_sec_idx].pts, rot) + tran
+            meshes[active_sec_idx].pts = (np.dot(meshes[active_sec_idx].pts, rot) + tran).astype(meshes[active_sec_idx].pts.dtype)
             logger.report_event("After affine (sec {}): {}".format(active_sec_name, ts_mean_offsets(meshes, links, active_sec_idx, plot=False)), log_level=logging.INFO)
 
-    def _compute_internal_grad(sec_mesh_gpu, sec_gradients_gpu, sec_edge_indices_gpu, sec_rest_lengths_gpu, sec_triangle_indices_gpu, sec_triangle_rest_areas_gpu,
-            sec_edge_costs_gpu, sec_triangle_costs_gpu, cost_array_gpu):
+    def _compute_internal_grad_cpu(self, sec_mesh_gpu, sec_gradients_gpu, sec_edge_indices_gpu, sec_rest_lengths_gpu,
+                        sec_triangle_indices_gpu, sec_triangle_rest_areas_gpu, cost_array_gpu):
+        new_grads = np.zeros_like(sec_mesh_gpu.get())
+        cur_cost = mesh_derivs_elastic.internal_mesh_derivs(sec_mesh_gpu.get(), new_grads, sec_edge_indices_gpu.get(), sec_rest_lengths_gpu.get(), self._intra_slice_weight, np.float32(self._intra_slice_winsor))
+        print("cpu compute cur_cost: {}".format(cur_cost))
+        return new_grads
+
+    def _compute_internal_grad(self, sec_mesh_gpu, sec_gradients_gpu, sec_edge_indices_gpu, sec_rest_lengths_gpu,
+            sec_triangle_indices_gpu, sec_triangle_rest_areas_gpu, cost_array_gpu, should_die):
 
         bdim = (128, 1, 1)
         gdim = ElasticMeshOptimizerGPU._bdim_to_gdim(bdim, sec_edge_indices_gpu.shape[0], 1)
         # First run the internal derivs computation
+        #new_gradients_gpu = gpuarray.zeros(sec_mesh_gpu.shape, np.float32, order='C')
         self._internal_mesh_derivs_func.prepared_call(gdim, bdim,
-                          sec_mesh_gpu, sec_gradients_gpu, sec_edge_indices_gpu,
-                          sec_edge_indices_gpu.shape[0], sec_rest_lengths_gpu,
-                          self._intra_slice_weight, self._intra_slice_winsor,
+                          sec_mesh_gpu.gpudata, sec_gradients_gpu.gpudata, sec_edge_indices_gpu.gpudata,
+                          #sec_mesh_gpu.gpudata, new_gradients_gpu.gpudata, sec_edge_indices_gpu.gpudata,
+                          np.int32(sec_edge_indices_gpu.shape[0]), sec_rest_lengths_gpu.gpudata,
+                          np.float32(self._intra_slice_weight), np.float32(self._intra_slice_winsor),
                           cost_array_gpu.gpudata)
 
+        #print("internal_grad cost cpu sum={}".format(np.sum(cost_array_gpu.get())))
+        if should_die:
+            new_grads = self._compute_internal_grad_cpu(sec_mesh_gpu, sec_gradients_gpu, sec_edge_indices_gpu, sec_rest_lengths_gpu,
+                                    sec_triangle_indices_gpu, sec_triangle_rest_areas_gpu, cost_array_gpu)
+            die
         # Memoization seems to cause a hang when using multiprocessing and pycuda.gpuarray.sum
 #         cost_arr = pycuda.gpuarray.sum(self._residuals_gpu)
 #         cost = float(cost_arr.get())
@@ -384,33 +410,36 @@ class ElasticMeshOptimizerGPU(object):
         # Run the triangle area computation if needed
         if self._compute_mesh_area:
             gdim = ElasticMeshOptimizerGPU._bdim_to_gdim(bdim, sec_triangle_indices_gpu.shape[0], 1)
-            self._area_mesh_derivs_func(gdim, bdim,
-                                sec_mesh_gpu, sec_gradients_gpu, sec_triangle_indices_gpu,
-                                sec_triangle_indices_gpu.shape[0], sec_triangle_rest_areas_gpu,
-                                self._intra_slice_weight,
+            self._area_mesh_derivs_func.prepared_call(gdim, bdim,
+                                sec_mesh_gpu.gpudata, sec_gradients_gpu.gpudata, sec_triangle_indices_gpu.gpudata,
+                                np.int32(sec_triangle_indices_gpu.shape[0]), sec_triangle_rest_areas_gpu.gpudata,
+                                np.float32(self._intra_slice_weight),
                                 cost_array_gpu.gpudata)
 
-            cost_arr = self._reduce_sum_kernel(cost_Array_gpu)
-            cost += float(cost_arr.get())
-            del cost_arr
+            if float(pycuda.gpuarray.min(cost_array_gpu).get()) < 0:
+                cost = np.inf
+            else:
+                cost_arr = self._reduce_sum_kernel(cost_array_gpu)
+                cost += float(cost_arr.get())
+                del cost_arr
             cost_array_gpu.fill(0.0)
         return cost
 
 
 
 
-    def _compute_external_grad(mesh1_gpu, mesh2_gpu, gradients1_gpu, gradients2_gpu, links_indices1_gpu, links_weights1_gpu, links_indices2_gpu, links_weights2_gpu,
+    def _compute_external_grad(self, mesh1_gpu, mesh2_gpu, gradients1_gpu, gradients2_gpu, links_indices1_gpu, links_weights1_gpu, links_indices2_gpu, links_weights2_gpu,
             corss_slice_weight, cost_array_gpu):
 
         bdim = (128, 1, 1)
-        gdim = ElasticMeshOptimizerGPU._bdim_to_gdim(bdim, sec_edge_indices_gpu.shape[0], 1)
+        gdim = ElasticMeshOptimizerGPU._bdim_to_gdim(bdim, links_indices1_gpu.shape[0], 1)
         # First run the internal derivs computation
         self._crosslink_mesh_derivs_func.prepared_call(gdim, bdim,
-                          mesh1_gpu, mesh2_gpu,
-                          gradients1_gpu, gradients2_gpu,
-                          links_indices1_gpu, links_indices2_gpu,
-                          links_indices1_gpu.shape[0],
-                          links_weights1_gpu, links_weights2_gpu,
+                          mesh1_gpu.gpudata, mesh2_gpu.gpudata,
+                          gradients1_gpu.gpudata, gradients2_gpu.gpudata,
+                          links_indices1_gpu.gpudata, links_indices2_gpu.gpudata,
+                          np.int32(links_indices1_gpu.shape[0]),
+                          links_weights1_gpu.gpudata, links_weights2_gpu.gpudata,
                           corss_slice_weight, self._cross_slice_winsor,
                           cost_array_gpu.gpudata)
 
@@ -425,12 +454,12 @@ class ElasticMeshOptimizerGPU(object):
 
         return cost
 
-    def _backup_meshes_gpu(meshes_gpu, block_lo, block_hi, prev_meshes_copy_gpu=None):
+    def _backup_meshes_gpu(self, meshes_gpu, block_lo, block_hi, prev_meshes_copy_gpu=None):
         # creates a copy of each of the meshes_gpu in the range (block_lo, block_hi), and returns the handles to the copied arrays
         if prev_meshes_copy_gpu is None:
             meshes_copy_gpu = {}
             for sec_idx in range(block_lo, block_hi):
-               meshes_copy_gpu = meshes_gpu[sec_idx].copy()
+               meshes_copy_gpu[sec_idx] = meshes_gpu[sec_idx].copy()
             return meshes_copy_gpu
         else:
             # No need to reallocate and free memory, just copy all the data
@@ -439,7 +468,7 @@ class ElasticMeshOptimizerGPU(object):
             return prev_meshes_copy_gpu
             
 
-    def _update_meshes_gpu(meshes_gpu, stepsize, momentum, gradients_gpu, gradients_with_momentum, block_lo, block_hi):
+    def _update_meshes_gpu(self, meshes_gpu, stepsize, momentum, gradients_gpu, gradients_with_momentum_gpu, block_lo, block_hi):
         
         # for sec_idx in gradients_with_momentum:
         #     gradients_with_momentum[sec_idx] = gradients[sec_idx] + momentum * gradients_with_momentum[sec_idx]
@@ -449,13 +478,13 @@ class ElasticMeshOptimizerGPU(object):
         for sec_idx in range(block_lo, block_hi):
             gdim = ElasticMeshOptimizerGPU._bdim_to_gdim(bdim, meshes_gpu[sec_idx].shape[0], 1)
             # First run the internal derivs computation
-            self._internal_mesh_derivs_func.prepared_call(gdim, bdim,
-                              meshes_gpu[sec_idx],
-                              meshes_gpu[sec_idx].shape[0],
-                              gradients_gpu[sec_idx],
-                              gradients_with_momentum[sec_idx],
-                              momentum,
-                              stepsize)
+            self._update_mesh_and_momentum_grads_func.prepared_call(gdim, bdim,
+                              meshes_gpu[sec_idx].gpudata,
+                              np.int32(meshes_gpu[sec_idx].shape[0]),
+                              gradients_gpu[sec_idx].gpudata,
+                              gradients_with_momentum_gpu[sec_idx].gpudata,
+                              np.float32(momentum),
+                              np.float32(stepsize))
 
 
 
@@ -478,31 +507,34 @@ class ElasticMeshOptimizerGPU(object):
             if sec_idx not in self._gpu_arrays["structural_meshes"]:
                 # a structural mesh has the following: edge_indices, edge_lengths, simplices, triangle_areas
                 self._gpu_arrays["structural_meshes"][sec_idx] = {
-                    "edge_indices": gpuarray.to_gpu(structural_meshes[sec_idx][0].astype(np.int32)),
+                    "edge_indices": gpuarray.to_gpu(structural_meshes[sec_idx][0].astype(np.uint32)),
                     "edge_lengths": gpuarray.to_gpu(structural_meshes[sec_idx][1].astype(np.float32)),
-                    "simplices": gpuarray.to_gpu(structural_meshes[sec_idx][2].astype(np.int32)),
+                    "simplices": gpuarray.to_gpu(structural_meshes[sec_idx][2].astype(np.uint32)),
                     "triangle_areas": gpuarray.to_gpu(structural_meshes[sec_idx][3].astype(np.float32))
                 }
             max_cost_array_len = max(max_cost_array_len, self._gpu_arrays["structural_meshes"][sec_idx]["edge_indices"].shape[0]) # number of inner edges
             max_cost_array_len = max(max_cost_array_len, self._gpu_arrays["structural_meshes"][sec_idx]["simplices"].shape[0]) # number of triangles
 
         gradients_gpu = {}
-        gradients_with_momentom_gpu = {}
+        gradients_with_momentum_gpu = {}
         for active_sec_idx in range(block_lo, block_hi):
             for neighbor_sec_idx in layout['neighbors'][active_sec_idx]:
                 if neighbor_sec_idx < block_lo:
                     continue
                 for pair in [(active_sec_idx, neighbor_sec_idx), (neighbor_sec_idx, active_sec_idx)]:
                     if pair not in self._gpu_arrays["links"]:
-                        idx1, w1 = links[pair]
+                        ((idx1, w1), (idx2, w2)) = links[pair]
                         self._gpu_arrays["links"][pair] = {
-                            "indices": gpuarray.to_gpu(idx1.astype(np.int32)),
-                            "weights": gpuarray.to_gpu(w1.astype(np.float32))
+                            "indices1": gpuarray.to_gpu(idx1.astype(np.int32)),
+                            "weights1": gpuarray.to_gpu(w1.astype(np.float32)),
+                            "indices2": gpuarray.to_gpu(idx2.astype(np.int32)),
+                            "weights2": gpuarray.to_gpu(w2.astype(np.float32))
                         }
-                    max_cost_array_len = max(max_cost_array_len, self._gpu_arrays["links"][pair]["indices"].shape[0]) # number of links between the two sections
+                    max_cost_array_len = max(max_cost_array_len, self._gpu_arrays["links"][pair]["indices1"].shape[0]) # number of links between the two sections
                 if active_sec_idx not in gradients_gpu:
                     gradients_gpu[active_sec_idx] = gpuarray.empty(meshes[active_sec_idx].pts.shape, np.float32, order='C')
-                    gradients_with_momentom_gpu[active_sec_idx] = gpuarray.zeros(meshes[active_sec_idx].pts.shape, np.float32, order='C')
+                if active_sec_idx not in gradients_with_momentum_gpu:
+                    gradients_with_momentum_gpu[active_sec_idx] = gpuarray.zeros(meshes[active_sec_idx].pts.shape, np.float32, order='C')
                 if neighbor_sec_idx not in gradients_gpu:
                     gradients_gpu[neighbor_sec_idx] = gpuarray.empty(meshes[neighbor_sec_idx].pts.shape, np.float32, order='C')
 
@@ -526,13 +558,16 @@ class ElasticMeshOptimizerGPU(object):
 #                 cost += mesh_derivs_elastic.internal_grad(self._compute_mesh_area, meshes[sec_idx].pts, gradients[sec_idx],
 #                                                   *((structural_meshes[sec_idx]) +
 #                                                     (self._intra_slice_weight, self._intra_slice_winsor)))
-                cost += self._compute_internal_grad(self._gpu_array["meshes"][sec_idx],
+                cost_internal = self._compute_internal_grad(self._gpu_arrays["meshes"][sec_idx],
                                                     gradients_gpu[sec_idx],
                                                     self._gpu_arrays["structural_meshes"][sec_idx]["edge_indices"],
                                                     self._gpu_arrays["structural_meshes"][sec_idx]["edge_lengths"],
                                                     self._gpu_arrays["structural_meshes"][sec_idx]["simplices"],
                                                     self._gpu_arrays["structural_meshes"][sec_idx]["triangle_areas"],
-                                                    cost_array_gpu)
+                                                    cost_array_gpu, sec_idx == -1)
+                #print("cost_internal {}: {}".format(sec_idx, cost_internal))
+                cost += cost_internal
+
 
 
             for active_sec_idx in range(block_lo, block_hi):
@@ -542,7 +577,8 @@ class ElasticMeshOptimizerGPU(object):
                     if neighbor_layer < active_sec_layer:
                         # take both (active_sec, neighbor_sec) and (neighbor_sec, active_sec) into account
 #                        for (sec1_idx, sec2_idx), ((idx1, w1), (idx2, w2)) in [((active_sec_idx, neighbor_sec_idx), links[active_sec_idx, neighbor_sec_idx]), ((neighbor_sec_idx, active_sec_idx), links[neighbor_sec_idx, active_sec_idx])]:
-                        for (sec1_idx, sec2_idx) in [(active_sec_idx, neighbor_sec_idx), (neighbor_sec_idx, active_sec_idx)]:
+                        for sec_pair in [(active_sec_idx, neighbor_sec_idx), (neighbor_sec_idx, active_sec_idx)]:
+                            (sec1_idx, sec2_idx) = sec_pair
 #                             if ts1 not in block_tss and ts2 not in block_tss:
 #                                 continue
 #                             # only take the previous sections into account (if one of the sections is in the next block, disregard its cost)
@@ -561,16 +597,21 @@ class ElasticMeshOptimizerGPU(object):
 #                                                               idx1, w1,
 #                                                               idx2, w2,
 #                                                               self._cross_slice_weight * norm_weights[sec1_idx, sec2_idx], self._cross_slice_winsor)
-                            cost += self._compute_external_grad(self._gpu_array["meshes"][sec1_idx],
-                                                                self._gpu_array["meshes"][sec2_idx],
+                            cost_pair = self._compute_external_grad(self._gpu_arrays["meshes"][sec1_idx],
+                                                                self._gpu_arrays["meshes"][sec2_idx],
                                                                 gradients_gpu[sec1_idx],
                                                                 gradients_gpu[sec2_idx],
-                                                                self._gpu_arrays["links"][sec1_idx]["indices"],
-                                                                self._gpu_arrays["links"][sec1_idx]["weights"],
-                                                                self._gpu_arrays["links"][sec2_idx]["indices"],
-                                                                self._gpu_arrays["links"][sec2_idx]["weights"],
-                                                                self._cross_slice_weight * norm_weights[sec1_idx, sec2_idx],
+                                                                self._gpu_arrays["links"][sec_pair]["indices1"],
+                                                                self._gpu_arrays["links"][sec_pair]["weights1"],
+                                                                self._gpu_arrays["links"][sec_pair]["indices2"],
+                                                                self._gpu_arrays["links"][sec_pair]["weights2"],
+                                                                self._cross_slice_weight * norm_weights[sec_pair],
                                                                 cost_array_gpu)
+
+                            #print("cost_pair ({}): {}".format(sec_pair, cost_pair))
+                            cost += cost_pair
+
+            #print("iter {} - total cost: {}".format(iter, cost))
                                                                 
 
             if cost < prev_cost and not np.isinf(cost):
@@ -595,10 +636,11 @@ class ElasticMeshOptimizerGPU(object):
                 stepsize *= 0.5
                 #gradients_with_momentum = {sec_idx: 0 for sec_idx in range(block_lo, block_hi)}
                 for sec_idx in range(block_lo, block_hi):
-                    gradients_with_momentom_gpu[sec_idx].fill(0)
+                    gradients_with_momentum_gpu[sec_idx].fill(0)
                 # if iter % 500 == 0:
                 #     print("{} Bad step: stepsize {}".format(iter, stepsize))
             if iter % 100 == 0:
+            #if (iter + 1) % 5 == 0:
                 # copy the meshes back from the gpu
                 for sec_idx in range(block_lo, block_hi):
                     self._gpu_arrays["meshes"][sec_idx].get(meshes[sec_idx].pts)
@@ -619,7 +661,7 @@ class ElasticMeshOptimizerGPU(object):
             # If stepsize is too small (won't make any difference), stop the iterations
             if stepsize < self._min_stepsize:
                 break
-        # TODO - copy the meshes back from the gpu
+        # copy the meshes back from the gpu
         for sec_idx in range(block_lo, block_hi):
             self._gpu_arrays["meshes"][sec_idx].get(meshes[sec_idx].pts)
         logger.report_event("region [{}, {}], last MO: {}\n".format(block_lo, block_hi, mean_offsets(meshes, links, block_hi, plot=False, from_sec_idx=block_lo)), log_level=logging.INFO)
@@ -735,6 +777,7 @@ class ElasticMeshOptimizerGPU(object):
             # release the gpu arrays that will no longer be needed
             self._deallcate_gpu_arrays(block_lo, block_hi - (self._block_size - self._block_step))
 
+        die
 
 
 

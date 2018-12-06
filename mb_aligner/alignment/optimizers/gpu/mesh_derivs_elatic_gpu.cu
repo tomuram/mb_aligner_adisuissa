@@ -3,7 +3,9 @@
  */
 
 
-#define FLOAT_INFINITY __int_as_float(0x7f800000)
+//#define FLOAT_INFINITY __int_as_float(0x7f800000)
+#define FLOAT_INFINITY __int_as_float(-1)
+#define SMALL_VALUE 0.0001
 
 /* Huber Loss Functions */
 
@@ -13,15 +15,15 @@ inline __device__ float huber(
             const float sigma,
             const float d_value_dx,
             const float d_value_dy,
-            const float* d_huber_dx,
-            const float* d_huber_dy
+            float* d_huber_dx,
+            float* d_huber_dy
             )
 {
-    float diff, a, b, l;
+    float diff, a, b;
 
     diff = value - target;
     if (abs(diff) <= sigma) {
-        a = diff * diff / 2;
+        a = (diff * diff) / 2;
         *d_huber_dx = diff * d_value_dx;
         *d_huber_dy = diff * d_value_dy;
         return a;
@@ -40,13 +42,13 @@ inline __device__ float reglen(
             const float vy,
             const float d_vx_dx,
             const float v_vy_dy,
-            const float* d_reglen_dx,
-            const float* d_reglen_dy
+            float* d_reglen_dx,
+            float* d_reglen_dy
             )
 {
     float sq_len, sqrt_len;
 
-    sq_len = vx * vx + vy * vy + small_value;
+    sq_len = vx * vx + vy * vy + SMALL_VALUE;
     sqrt_len = sqrt(sq_len);
     *d_reglen_dx = vx / sqrt_len;
     *d_reglen_dy = vy / sqrt_len;
@@ -58,8 +60,8 @@ inline __device__ float reglen(
 __global__ void crosslink_mesh_derivs(
             const float2* mesh1,
             const float2* mesh2,
-            const float2* d_cost_d_mesh1,
-            const float2* d_cost_d_mesh2,
+            float2* d_cost_d_mesh1,
+            float2* d_cost_d_mesh2,
             const uint3* indices1,
             const uint3* indices2,
             const int indices_num,
@@ -67,7 +69,7 @@ __global__ void crosslink_mesh_derivs(
             const float3* barys2,
             const float all_weight,
             const float sigma,
-            const float* crosslink_costs
+            float* crosslink_costs
             )
 {
     float px, py, qx, qy;
@@ -79,7 +81,7 @@ __global__ void crosslink_mesh_derivs(
     float dr_dx, dr_dy, dh_dx, dh_dy;
     float cost = 0;
 
-    const int idx = threadIdx.x;
+    const int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
     // Check that the given index is valid
     if (idx >= indices_num)
@@ -145,13 +147,13 @@ __global__ void crosslink_mesh_derivs(
 /* Mesh internal-links derivs */
 __global__ void internal_mesh_derivs(
             const float2* mesh,
-            const float2* d_cost_d_mesh,
+            float2* d_cost_d_mesh,
             const uint2* edge_indices,
             const int edge_indices_num,
             const float* rest_lengths,
             const float all_weight,
             const float sigma,
-            const float* edge_costs
+            float* edge_costs
             )
 {
     int idx1, idx2;
@@ -160,13 +162,13 @@ __global__ void internal_mesh_derivs(
     float dr_dx, dr_dy, dh_dx, dh_dy;
     float cost = 0;
     
-    const int edge_idx = threadIdx.x;
+    const int edge_idx = blockDim.x * blockIdx.x + threadIdx.x;
     // Check that the given edge index is valid
     if (edge_idx >= edge_indices_num)
         return;
 
     idx1 = edge_indices[edge_idx].x;
-    idx2 = edge_indices[edgx_idx].y;
+    idx2 = edge_indices[edge_idx].y;
 
     px = mesh[idx1].x;
     py = mesh[idx1].y;
@@ -174,7 +176,7 @@ __global__ void internal_mesh_derivs(
     qy = mesh[idx2].y;
 
     r = reglen(px - qx, py - qy,
-               1, 1,
+               1.0, 1.0,
                &(dr_dx), &(dr_dy));
     h = huber(r, rest_lengths[edge_idx], sigma,
               dr_dx, dr_dy,
@@ -196,20 +198,20 @@ __global__ void internal_mesh_derivs(
 /* Mesh area derivs (triangle area) */
 __global__ void area_mesh_derivs(
             const float2* mesh,
-            const float2* d_cost_d_mesh,
+            float2* d_cost_d_mesh,
             const uint3* triangle_indices,
             const int triangle_indices_num,
             const float* rest_areas,
             const float all_weight,
-            const float* triangle_costs
+            float* triangle_costs
             )
 {
-    int idx1, idx2, idx3;
+    int idx0, idx1, idx2;
     float v01x, v01y, v02x, v02y, area, r_area;
     float cost, dc_da;
     float a1;
 
-    const int triangle_idx = threadIdx.x;
+    const int triangle_idx = blockDim.x * blockIdx.x + threadIdx.x;
     // Check that the given edge index is valid
     if (triangle_idx >= triangle_indices_num)
         return;
@@ -259,16 +261,16 @@ __global__ void area_mesh_derivs(
 
 /* Mesh area derivs (triangle area) */
 __global__ void update_mesh_and_momentum_grads(
-            const float2* mesh,
+            float2* mesh,
             const int pts_num,
             const float2* grads,
-            const float2* momentum_grads,
+            float2* momentum_grads,
             const float momentum,
             const float stepsize
             )
 {
 
-    const int pt_idx = threadIdx.x;
+    const int pt_idx = blockDim.x * blockIdx.x + threadIdx.x;
     // Check that the given point index is valid
     if (pt_idx >= pts_num)
         return;
