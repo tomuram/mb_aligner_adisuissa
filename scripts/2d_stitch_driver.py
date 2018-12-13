@@ -2,7 +2,7 @@ import argparse
 import sys
 import os
 import glob
-import json
+import ujson
 from mb_aligner.stitching.stitcher import Stitcher
 from mb_aligner.dal.section import Section
 from rh_logger.api import logger
@@ -35,21 +35,25 @@ def run_stitcher(args):
     # read the inpput tilespecs
     in_ts_fnames = sorted(glob.glob(os.path.join(args.ts_dir, "*.json")))
 
+    logger.report_event("Stitching {} sections".format(len(in_ts_fnames)), log_level=logging.INFO)
     for in_ts_fname in in_ts_fnames:
+        logger.report_event("Stitching {}".format(in_ts_fname), log_level=logging.DEBUG)
         out_ts_fname = os.path.join(args.output_dir, os.path.basename(in_ts_fname))
         if os.path.exists(out_ts_fname):
             continue
 
         print("Stitching {}".format(in_ts_fname))
-        section = Section.create_from_tilespec(in_ts_fname)
-        stitcher.stitch_section(section) 
+        with open(in_ts_fname, 'rt') as in_f:
+            in_ts = ujson.load(in_f)
+            section = Section.create_from_tilespec(in_ts)
+            stitcher.stitch_section(section) 
 
-        # Save the tilespec
-        section.save_as_json(out_ts_fname)
-#         out_tilespec = section.tilespec
-#         import json
-#         with open(out_ts_fname, 'wt') as out_f:
-#             json.dump(out_tilespec, out_f, sort_keys=True, indent=4)
+            # Save the tilespec
+            section.save_as_json(out_ts_fname)
+    #         out_tilespec = section.tilespec
+    #         import json
+    #         with open(out_ts_fname, 'wt') as out_f:
+    #             json.dump(out_tilespec, out_f, sort_keys=True, indent=4)
 
     del stitcher
         
