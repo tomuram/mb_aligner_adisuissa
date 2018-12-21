@@ -31,6 +31,8 @@ class FeaturesMatcher(object):
 
         self._params["best_k_matches"] = kwargs.get("best_k_matches", 0) # 0 = all of the matches
 
+        self._params["max_distance"] = kwargs.get("max_distance", None)
+
     def match(self, features_kps1, features_descs1, features_kps2, features_descs2):
         if features_descs1 is None or len(features_descs1) < self._params["min_features_num"] or features_descs2 is None or len(features_descs2) < self._params["min_features_num"]:
             return None
@@ -65,7 +67,7 @@ class FeaturesMatcher(object):
         model, filtered_matches, mask = ransac.filter_matches(match_points, match_points, self._params['model_index'],
                     self._params['iterations'], self._params['max_epsilon'], self._params['min_inlier_ratio'],
                     self._params['min_num_inlier'], self._params['max_trust'], self._params['det_delta'], self._params['max_stretch'],
-                    robust_filter=not self._params['avoid_robust_filter'])
+                    robust_filter=not self._params['avoid_robust_filter'], max_distance=self._params['max_distance'])
 
         if model is None:
             return None, None
@@ -74,7 +76,7 @@ class FeaturesMatcher(object):
             regularizer_model, _, _ = ransac.filter_matches(match_points, match_points, self._params['regularizer_model_index'],
                         self._params['iterations'], self._params['max_epsilon'], self._params['min_inlier_ratio'],
                         self._params['min_num_inlier'], self._params['max_trust'], self._params['det_delta'], self._params['max_stretch'],
-                        robust_filter=not self._params['avoid_robust_filter'])
+                        robust_filter=not self._params['avoid_robust_filter'], max_distance=self._params['max_distance'])
 
             if regularizer_model is None:
                 return None, None

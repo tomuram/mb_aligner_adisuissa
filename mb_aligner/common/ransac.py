@@ -178,7 +178,7 @@ def filter_triangles(m0, m1, choices,
 
 
 
-def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon, min_inlier_ratio, min_num_inlier, det_delta=0.55, max_stretch=None, max_rot_deg=None, tri_angles_comparator=None):
+def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon, min_inlier_ratio, min_num_inlier, det_delta=0.55, max_stretch=None, max_rot_deg=None, tri_angles_comparator=None, max_distance=None):
     # model = Model.create_model(target_model_type)
     assert(len(sample_matches[0]) == len(sample_matches[1]))
 
@@ -252,6 +252,15 @@ def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon,
                              max_iterations)
     if proposed_model.MIN_MATCHES_NUM == 3:
         choices = filter_triangles(sample_matches[0], sample_matches[1], choices)
+    if max_distance is not None:
+        # estimate the center of each section by looking at the "central" feature location
+        sec1_min_xy = np.min(test_matches[0], axis=0)
+        sec1_max_xy = np.max(test_matches[0], axis=0)
+        sec2_min_xy = np.min(test_matches[1], axis=0)
+        sec2_max_xy = np.max(test_matches[1], axis=0)
+        sec1_center = (sec1_min_xy + sec1_max_xy) / 2.0
+        sec2_center = (sec2_min_xy + sec2_max_xy) / 2.0
+        max_distance2 = max_distance**2
     for min_matches_idxs in choices:
         # Try to fit them to the model
         if proposed_model.fit(sample_matches[0][min_matches_idxs], sample_matches[1][min_matches_idxs]) == False:
@@ -275,6 +284,12 @@ def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon,
             if tri_angles_comparator is not None:
                 if tri_angles_comparator(proposed_model) is False:
                     continue
+        # Check what's the "translational" distance of the given transformation
+        if max_distance is not None:
+            sec1_center_transformed = proposed_model.apply(sec1_center)[0]
+            centers_dist2 = np.sum((sec2_center - sec1_center_transformed)**2)
+            if centers_dist2 > max_distance2:
+                continue
         # print "proposed_model", proposed_model.to_str()
         # Verify the new model 
         proposed_model_score, inlier_mask, proposed_model_mean = proposed_model.score(test_matches[0], test_matches[1], epsilon, min_inlier_ratio, min_num_inlier)
@@ -341,7 +356,7 @@ def filter_after_ransac(candidates, model, max_trust, min_num_inliers):
     return new_model, candidates_mask, np.mean(dists)
 
 
-def filter_matches(sample_matches, test_matches, target_model_type, iterations, epsilon, min_inlier_ratio, min_num_inlier, max_trust, det_delta=0.35, max_stretch=None, max_rot_deg=None, robust_filter=True, tri_angles_comparator=None):
+def filter_matches(sample_matches, test_matches, target_model_type, iterations, epsilon, min_inlier_ratio, min_num_inlier, max_trust, det_delta=0.35, max_stretch=None, max_rot_deg=None, robust_filter=True, tri_angles_comparator=None, max_distance=None):
     """Perform a RANSAC filtering given all the matches"""
     new_model = None
     filtered_matches = None
@@ -350,7 +365,7 @@ def filter_matches(sample_matches, test_matches, target_model_type, iterations, 
     # Apply RANSAC
     # print "Filtering {} matches".format(matches.shape[1])
     logger.report_event("pre-ransac matches count: sample={}, test={}".format(len(sample_matches[0]), len(test_matches[0])), log_level=logging.DEBUG)
-    inliers_mask, model, _ = ransac(sample_matches, test_matches, target_model_type, iterations, epsilon, min_inlier_ratio, min_num_inlier, det_delta, max_stretch, max_rot_deg, tri_angles_comparator=tri_angles_comparator)
+    inliers_mask, model, _ = ransac(sample_matches, test_matches, target_model_type, iterations, epsilon, min_inlier_ratio, min_num_inlier, det_delta, max_stretch, max_rot_deg, tri_angles_comparator=tri_angles_comparator, max_distance=max_distance)
     if inliers_mask is None:
         logger.report_event("post-ransac matches count: 0", log_level=logging.DEBUG)
     else:
