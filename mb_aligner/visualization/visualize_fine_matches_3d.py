@@ -1,6 +1,9 @@
 import numpy as np
 import cv2
 import sys
+import shapely.geometry
+import shapely.ops
+from descartes.patch import PolygonPatch
 import matplotlib
 #matplotlib.use('GTKAgg')
 import matplotlib.pyplot as plt
@@ -12,6 +15,8 @@ from mb_aligner.common.intermediate_results_dal_pickle import IntermediateResult
 from enum import Enum
 import ujson as json
 from mb_aligner.dal.section import Section
+from mb_aligner.visualization.visualize_pre_match_3d_affine_result import PreMatch3DAffineResultVisualizer
+import rh_renderer.models
 
 
 class FineMatches3DVisualizer(object):
@@ -65,6 +70,7 @@ class FineMatches3DVisualizer(object):
         mag_hist = np.histogram(mag, bins=10)
         print("mag hist%: {}".format(mag_hist[0]/float(len(mag))))
         print("mag hist bin_edges: {}".format(mag_hist[1]))
+        print("mag percentiles [0, 10, 25, 50, 75]: {}".format(np.percentile(mag, [0, 10, 25, 50, 75])))
 
         # cap the magintude by 2*median(mag) so we will be able to see the non-outlier orientations
         mag_threshold = 4 * np.median(mag)
@@ -96,8 +102,32 @@ class FineMatches3DVisualizer(object):
         if title is not None:
             ax.set_title(title)
         ax.set_axis_bgcolor('black')
+
+        self._add_mfovs_layout(fig, ax, self._sec_src, affine_mat)
         return fig, ax
     
+
+    def _add_mfovs_layout(self, fig, ax, sec, affine_mat):
+        affine_model = rh_renderer.models.AffineModel(affine_mat)
+        global_affine_transformation = {cur_mfov.mfov_index:affine_model for cur_mfov in sec.mfovs()}
+        sec_mfovs_tiles_proj, sec_min_xy_proj = PreMatch3DAffineResultVisualizer.create_section_tiles_projections(sec, global_affine_transformation)
+
+#         # scale the projections
+#         for cur_mfov in sec.mfovs():
+#             cur_mfov_index = cur_mfov.mfov_index
+#             for idx in range(len(sec_mfovs_tiles_proj[cur_mfov_index])):
+#                 #sec_mfovs_tiles_proj[cur_mfov_index][idx] -= min_xy_proj
+#                 sec_mfovs_tiles_proj[cur_mfov_index][idx] *= self._scale
+
+        sec_polygons_and_fill = [(PreMatch3DAffineResultVisualizer._get_pts_unified_polygon(mfov_pts_list), False) for mfov_pts_list in sec_mfovs_tiles_proj.values()]
+
+        PreMatch3DAffineResultVisualizer._add_polygons(ax, sec_polygons_and_fill)
+
+        # Add the mfov text
+        sec_centers_proj = {mfov_index: PreMatch3DAffineResultVisualizer._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec_mfovs_tiles_proj.items()}
+        PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec_centers_proj, 'green')
+        
+
 
     def add_matches(self, points_src, points_dest):
         assert(len(points_src) == len(points_dest))
@@ -144,7 +174,7 @@ class FineMatches3DVisualizer(object):
            Shows the information from all the previously loaded matches (files/matches).
         """
         if title is None:
-            title = "{} -> {} ({})".format(os.path.basename(self._sec_src.canonical_section_name), os.path.basename(self._sec_dst.canonical_section_name), 'affine' if use_affine else 'translation')
+            title = "{} -> {} ({})".format(self._sec_src.canonical_section_name_no_layer, self._sec_dst.canonical_section_name_no_layer, 'affine' if use_affine else 'translation')
 
         return self._visualize_matches_hsv_after_affine(title, use_affine)
 
@@ -277,6 +307,7 @@ if __name__ == '__main__':
 
     ts1 = inter_results_dal["metadata"]['sec1']
     ts2 = inter_results_dal["metadata"]['sec2']
+    print("ts1: {}, ts2: {}".format(ts1, ts2))
 
     sec1 = FineMatches3DVisualizer._load_tilespec(ts1_fname)
     sec2 = FineMatches3DVisualizer._load_tilespec(ts2_fname)

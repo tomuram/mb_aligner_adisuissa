@@ -81,7 +81,7 @@ class PreMatch3DAffineResultVisualizer(object):
                 mfovs_tiles_proj[cur_mfov_index][idx] *= self._scale
  
     @staticmethod
-    def _add_polygons(ax, polygons_and_fill, facecolor):
+    def _add_polygons(ax, polygons_and_fill, facecolor=None):
 
         multi = shapely.geometry.MultiPolygon([p[0] for p in polygons_and_fill])
 
@@ -92,7 +92,10 @@ class PreMatch3DAffineResultVisualizer(object):
 
             #patch = PolygonPatch(p, facecolor='#6699cc', edgecolor='#6699cc', alpha=0.5, zorder=2)
             #patch = PolygonPatch(p, edgecolor=edgecolor, alpha=0.5, zorder=2, fill=not poly_pts_and_fill[1])
-            patch = PolygonPatch(p, edgecolor='#225511', facecolor=facecolor, alpha=0.5, zorder=2)
+            if facecolor is None:
+                patch = PolygonPatch(p, edgecolor='#225511', alpha=0.2, zorder=2)
+            else:
+                patch = PolygonPatch(p, edgecolor='#225511', facecolor=facecolor, alpha=0.5, zorder=2)
             ax.add_patch(patch)
 
     @staticmethod
@@ -101,7 +104,8 @@ class PreMatch3DAffineResultVisualizer(object):
             ax.text(mfov_center[0], mfov_center[1], '{}'.format(mfov_index), color=color)
         
 
-    def _get_pts_polygons(self, all_tiles_pts):
+    @staticmethod
+    def _get_pts_polygons(all_tiles_pts):
         polygons = [
             shapely.geometry.Polygon([
                 t_pts[0],
@@ -113,8 +117,9 @@ class PreMatch3DAffineResultVisualizer(object):
 
         return polygons
 
-    def _get_pts_unified_polygon(self, all_tiles_pts):
-        polygons = self._get_pts_polygons(all_tiles_pts)
+    @staticmethod
+    def _get_pts_unified_polygon(all_tiles_pts):
+        polygons = PreMatch3DAffineResultVisualizer._get_pts_polygons(all_tiles_pts)
         return shapely.ops.cascaded_union(polygons)
 
     def _apply_transformation(self, matrix, p):
@@ -142,7 +147,8 @@ class PreMatch3DAffineResultVisualizer(object):
 
         return fig, ax
 
-    def _find_center(self, all_tiles_pts):
+    @staticmethod
+    def _find_center(all_tiles_pts):
         # receives a list of a (tile) points list
         # find the minimial and maximal x and y values, and return the center of the mfov
         min_x = min([np.min(tile_pts[:, 0]) for tile_pts in all_tiles_pts])
@@ -181,8 +187,8 @@ class PreMatch3DAffineResultVisualizer(object):
         self._normalize_and_scale_projections(sec2, sec2_mfovs_tiles_proj, min_xy_proj)
 
         # Create the polygons for each of the mfovs for each of the sections
-        sec1_polygons_and_fill = [(self._get_pts_unified_polygon(mfov_pts_list), not mfov_index in missing_sec1_transforms) for mfov_index, mfov_pts_list in sec1_mfovs_tiles_proj.items()]
-        sec2_polygons_and_fill = [(self._get_pts_unified_polygon(mfov_pts_list), True) for mfov_pts_list in sec2_mfovs_tiles_proj.values()]
+        sec1_polygons_and_fill = [(PreMatch3DAffineResultVisualizer._get_pts_unified_polygon(mfov_pts_list), not mfov_index in missing_sec1_transforms) for mfov_index, mfov_pts_list in sec1_mfovs_tiles_proj.items()]
+        sec2_polygons_and_fill = [(PreMatch3DAffineResultVisualizer._get_pts_unified_polygon(mfov_pts_list), True) for mfov_pts_list in sec2_mfovs_tiles_proj.values()]
         
         # Create the figure and lay down the polygons for each mfov of each section
         fig = plt.figure()
@@ -194,8 +200,8 @@ class PreMatch3DAffineResultVisualizer(object):
 
         # Add mfov indices to the center of each relevant mfov
         # first, find normalized centers
-        sec1_centers_proj = {mfov_index: self._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec1_mfovs_tiles_proj.items()}
-        sec2_centers_proj = {mfov_index: self._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec2_mfovs_tiles_proj.items()}
+        sec1_centers_proj = {mfov_index: PreMatch3DAffineResultVisualizer._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec1_mfovs_tiles_proj.items()}
+        sec2_centers_proj = {mfov_index: PreMatch3DAffineResultVisualizer._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec2_mfovs_tiles_proj.items()}
 
         PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec1_centers_proj, 'red')
         PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec2_centers_proj, 'green')
