@@ -96,6 +96,7 @@ class Section(object):
 
         return images, np.array(x), np.array(y)
 
+
     @classmethod
     def create_from_full_image_coordinates(cls, full_image_coordinates_fname, layer, tile_size=None, **kwargs):
         """
@@ -137,6 +138,98 @@ class Section(object):
         bbox = [0, max_x, 0, max_y]
 
         return Section(all_mfovs, layer=layer, bbox=bbox, **kwargs)
+
+    @classmethod
+    def _parse_mfov_coordinates_file(cls, input_file):
+        # Read the relevant mfovs tiles locations
+        images_dict = {}
+        images = []
+        x = []
+        y = []
+        # Instead of just opening the file, opening the sorted file, so the tiles will be arranged
+        sorted_lines = subprocess.check_output('cat "{}" | sort'.format(input_file), shell=True)
+        assert(len(sorted_lines) > 0)
+        sorted_lines = sorted_lines.decode('ascii').split('\r\n')
+        for line in sorted_lines:
+            line_data = line.split('\t')
+            img_fname = line_data[0].replace('\\', '/')
+            if len(img_fname) == 0:
+                continue
+            img_sec_mfov_beam = '_'.join(img_fname.split('_')[:3])
+            # Make sure that no duplicates appear
+            if img_sec_mfov_beam not in images_dict.keys():
+                images.append(img_fname)
+                images_dict[img_sec_mfov_beam] = len(images) - 1
+                cur_x = float(line_data[1])
+                cur_y = float(line_data[2])
+                x.append(cur_x)
+                y.append(cur_y)
+            else:
+                # Either the image is duplicated, or a newer version was taken,
+                # so make sure that the newer version is used
+                prev_img_idx = images_dict[img_sec_mfov_beam]
+                prev_img = images[prev_img_idx]
+                prev_img_date = prev_img.split('_')[-1]
+                curr_img_date = img_fname.split('_')[-1]
+                if curr_img_date > prev_img_date:
+                    images[prev_img_idx] = img_fname
+                    images_dict[img_sec_mfov_beam] = img_fname
+                    cur_x = float(line_data[1])
+                    cur_y = float(line_data[2])
+                    x[prev_img_idx] = cur_x
+                    y[prev_img_idx] = cur_y
+
+        return images, np.array(x), np.array(y)
+
+
+    @classmethod
+    def create_from_mfovs_image_coordinates(cls, mfovs_image_coordinates_fnames, layer, tile_size=None, **kwargs):
+        """
+        Creates a section from multiple per-mfov image_coordinates filenames
+        """
+        images = []
+        x_locs = []
+        y_locs = []
+        for mfov_image_coordinates_fname in mfovs_image_coordinates_fnames:
+            mfov_images, mfov_x_locs, mfov_y_locs = Section._parse_mfov_coordinates_file(mfov_image_coordinates_fname)
+            images.extend([os.path.join(os.path.dirname(mfov_image_coordinates_fname), mfov_image) for mfov_image in mfov_images])
+            x_locs.extend(mfov_x_locs)
+            y_locs.extend(mfov_y_locs)
+        assert(len(images) > 0)
+
+        # Update tile_size if needed
+        if tile_size is None:
+            # read the first image - assuming all files of the same shape
+            img_fname = images[0]
+            img = cv2.imread(img_fname, 0)
+            tile_size = img.shape
+
+        # normalize the locations of all the tiles (reset to (0, 0))
+        x_locs -= np.min(x_locs)
+        y_locs -= np.min(y_locs)
+
+
+        # Create all the tiles
+        per_mfov_tiles = defaultdict(list)
+        for tile_fname, tile_x, tile_y, in zip(images, x_locs, y_locs):
+            # fetch mfov_idx, and tile_idx
+            split_data = os.path.basename(tile_fname).split('_')
+            mfov_idx = int(split_data[1])
+            tile_idx = int(split_data[2])
+            print('adding mfov_idx %d, tile_idx %d' % (mfov_idx, tile_idx))
+            tile = Tile.create_from_input(tile_fname, tile_size, (tile_x, tile_y), layer, mfov_idx, tile_idx)
+            per_mfov_tiles[mfov_idx].append(tile)
+            
+        all_mfovs = {mfov_idx:Mfov(mfov_tiles_list) for mfov_idx, mfov_tiles_list in per_mfov_tiles.items()}
+
+        # Just take any tile's width and height to compute the max_x,y values
+        max_x = np.max(x_locs) + tile.width
+        max_y = np.max(y_locs) + tile.width
+        bbox = [0, max_x, 0, max_y]
+
+        return Section(all_mfovs, layer=layer, bbox=bbox, **kwargs)
+
+
 
 
 
