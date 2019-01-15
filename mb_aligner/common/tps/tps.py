@@ -10,6 +10,8 @@ import logging
 # Note we inherit from Alignment first to get it's n_dims behavior
 #class ThinPlateSplines(Alignment, Transform, Invertible):
 class ThinPlateSplines(object):
+    SVD_RANDOM_POINTS_THRESHOLD = 2000
+
     r"""
     The thin plate splines (TPS) alignment between 2D `source` and `target`
     landmarks.
@@ -74,7 +76,14 @@ class ThinPlateSplines(object):
         # If two points are coincident, or very close to being so, then the
         # matrix is rank deficient and thus not-invertible. Therefore,
         # only take the inverse on the full-rank set of indices.
-        _u, _s, _v = np.linalg.svd(self.l)
+        if self.n_points <= ThinPlateSplines.SVD_RANDOM_POINTS_THRESHOLD:
+            _u, _s, _v = np.linalg.svd(self.l)
+        else:
+            logging.log(logging.DEBUG, "TPS too many points, using randomized SVD")
+            # Randomized svd uses much less memory and is much faster than the numpy/scipy versions
+            from sklearn.utils.extmath import randomized_svd
+            _u, _s, _v = randomized_svd(self.l, 4, ThinPlateSplines.SVD_RANDOM_POINTS_THRESHOLD)
+            
         logging.log(logging.DEBUG, "TPS build_coefficents 4 svd done")
         keep = _s.shape[0] - sum(_s < self.min_singular_val)
         logging.log(logging.DEBUG, "TPS build_coefficents 5 finding keep done. keep={}, _u.shape: {}, _s.shape: {}, _v.shape: {}".format(keep, _u[:, :keep].shape, _s[:keep, None].shape, _v[:keep, :].shape))
