@@ -32,8 +32,12 @@ stitching:
         #regularizer_lambda: 0.1
         best_k_matches: 30
 
-    #optimizer_type: mb_aligner.stitching.optimize_rigid_2d_tiles.Rigid2DOptimizer
-    optimizer_type: mb_aligner.stitching.optimizers.gpu.optimize_rigid_2d_tiles_gpu.GPURigid2DOptimizer
+    missing_matches_policy_type: mb_aligner.stitching.missing_matches_policies.use_microscope_coords.UseMicroscopeCoordinates
+    missing_matches_policy_params:
+        intra_mfov_only: True 
+
+    optimizer_type: mb_aligner.stitching.optimizers.optimize_rigid_2d_tiles.Rigid2DOptimizer
+    #optimizer_type: mb_aligner.stitching.optimizers.gpu.optimize_rigid_2d_tiles_gpu.GPURigid2DOptimizer
     optimizer_params:
         damping: 0.01
         huber_delta: 15

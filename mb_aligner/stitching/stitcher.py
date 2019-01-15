@@ -158,27 +158,27 @@ class MatcherWorker(object):
             #print("Transform_model:\n{}".format(None if transform_model is None else transform_model.get_matrix()))
             #print("filtered_matches ({}, {}):\n{}".format(tile1.mfov_index, tile2.mfov_index, filtered_matches))
 
-            # TODO - add fake matches in case none were found
-            if filtered_matches is None and tile1.mfov_index == tile2.mfov_index:
-            #if filtered_matches is None:
-                logger.report_event("Adding fake matches between: {} and {}".format((tile1.mfov_index, tile1.tile_index), (tile2.mfov_index, tile2.tile_index)), log_level=logging.INFO)
-                intersection = [max(bbox1[0], bbox2[0]),
-                                min(bbox1[1], bbox2[1]),
-                                max(bbox1[2], bbox2[2]),
-                                min(bbox1[3], bbox2[3])]
-                intersection_center = np.array([intersection[0] + intersection[1], intersection[2] + intersection[3]]) * 0.5
-                fake_match_points_global = np.array([
-                        [intersection_center[0] + intersection[0] - 2, intersection_center[1] + intersection[2] - 2],
-                        [intersection_center[0] + intersection[1] + 4, intersection_center[1] + intersection[2] - 4],
-                        [intersection_center[0] + intersection[0] + 2, intersection_center[1] + intersection[3] - 2],
-                        [intersection_center[0] + intersection[1] - 4, intersection_center[1] + intersection[3] - 6]
-                    ]) * 0.5
-                filtered_matches = np.array([
-                        fake_match_points_global - np.array([bbox1[0], bbox1[2]]),
-                        fake_match_points_global - np.array([bbox2[0], bbox2[2]])
-                    ])
-                #print("filtered_matches: {}".format(filtered_matches))
-            #print("filtered_matches.shape: {}".format(filtered_matches.shape))
+#             # TODO - add fake matches in case none were found
+#             if filtered_matches is None and tile1.mfov_index == tile2.mfov_index:
+#             #if filtered_matches is None:
+#                 logger.report_event("Adding fake matches between: {} and {}".format((tile1.mfov_index, tile1.tile_index), (tile2.mfov_index, tile2.tile_index)), log_level=logging.INFO)
+#                 intersection = [max(bbox1[0], bbox2[0]),
+#                                 min(bbox1[1], bbox2[1]),
+#                                 max(bbox1[2], bbox2[2]),
+#                                 min(bbox1[3], bbox2[3])]
+#                 intersection_center = np.array([intersection[0] + intersection[1], intersection[2] + intersection[3]]) * 0.5
+#                 fake_match_points_global = np.array([
+#                         [intersection_center[0] + intersection[0] - 2, intersection_center[1] + intersection[2] - 2],
+#                         [intersection_center[0] + intersection[1] + 4, intersection_center[1] + intersection[2] - 4],
+#                         [intersection_center[0] + intersection[0] + 2, intersection_center[1] + intersection[3] - 2],
+#                         [intersection_center[0] + intersection[1] - 4, intersection_center[1] + intersection[3] - 6]
+#                     ]) * 0.5
+#                 filtered_matches = np.array([
+#                         fake_match_points_global - np.array([bbox1[0], bbox1[2]]),
+#                         fake_match_points_global - np.array([bbox2[0], bbox2[2]])
+#                     ])
+#                 #print("filtered_matches: {}".format(filtered_matches))
+#             #print("filtered_matches.shape: {}".format(filtered_matches.shape))
 
             self._output_queue.put((match_idx, filtered_matches))
 
@@ -246,6 +246,13 @@ class Stitcher(object):
     def __init__(self, conf):
         self._conf = conf
 
+
+        missing_matches_policy_type = conf.get('missing_matches_policy_type', None)
+        if missing_matches_policy_type is None:
+            self._missing_matches_policy = None
+        else:
+            missing_matches_policy_params = conf.get('missing_matches_policy_params', {})
+            self._missing_matches_policy = mb_aligner.common.utils.load_plugin(missing_matches_policy_type)(**missing_matches_policy_params)
 
         optimizer_type = conf.get('optimizer_type')
         optimizer_params = conf.get('optimizer_params', {})
@@ -475,10 +482,20 @@ class Stitcher(object):
             tile1_unique_idx = (tile1.layer, tile1.mfov_index, tile1.tile_index)
             tile2_unique_idx = (tile2.layer, tile2.mfov_index, tile2.tile_index)
             if filtered_matches is None or len(filtered_matches[0]) <= 3: # TODO - make a parameter
-                logger.report_event("Removing no matches for pair: {} -> {}".format(tile1_unique_idx, tile2_unique_idx), log_level=logging.INFO)
+                if self._missing_matches_policy is None:
+                    logger.report_event("Removing no matches for pair: {} -> {}".format(tile1_unique_idx, tile2_unique_idx), log_level=logging.INFO)
+                else:
+                    self._missing_matches_policy.add_missing_match({(tile1_unique_idx, tile2_unique_idx): (tile1, tile2)})
             else:
                 match_results_map[(tile1_unique_idx, tile2_unique_idx)] = filtered_matches
             res_match_jobs_counter += 1
+
+        if self._missing_matches_policy is not None:
+            logger.report_event("Handling missing matches", log_level=logging.INFO)
+            missing_matches_map = self._missing_matches_policy.fix_missing_matches(match_results_map)
+            match_results_map.update(missing_matches_map)
+            self._missing_matches_policy.reset()
+            
 
         logger.report_event("Starting optimization", log_level=logging.INFO)
         # Generate a map between tile and its original estimated location
