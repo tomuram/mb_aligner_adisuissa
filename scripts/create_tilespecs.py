@@ -7,17 +7,21 @@ import os
 import re
 import glob
 import common
+import pickle
 from mb_aligner.dal.section import Section
 
 
-def sec_dir_to_wafer_section(sec_dir):
-    wafer_folder = sec_dir.split(os.sep)[-3]
+def sec_dir_to_wafer_section(sec_dir, args_wafer_num=None):
+    wafer_folder = sec_dir.split(os.sep)[-4]
     section_folder = sec_dir.split(os.sep)[-2]
 
-    m = re.match('.*[W|w]([0-9])+.*', wafer_folder)
-    if m is None:
-        raise Exception("Couldn't find wafer number from section directory {} (wafer dir is: {})".format(sec_dir, wafer_folder))
-    wafer_num = int(m.group(1))
+    if args_wafer_num is None:
+        m = re.match('.*[W|w]([0-9]+).*', wafer_folder)
+        if m is None:
+            raise Exception("Couldn't find wafer number from section directory {} (wafer dir is: {})".format(sec_dir, wafer_folder))
+        wafer_num = int(m.group(1))
+    else:
+        wafer_num = args_wafer_num
 
     m = re.match('.*_S([0-9]+)R1+.*', section_folder)
     if m is None:
@@ -42,9 +46,29 @@ def parse_args(args=None):
     parser.add_argument("-i", "--initial_layer_num", metavar="initial_layer_num", type=int,
                         help="The layer# of the first section in the list. (default: 1)",
                         default=1)
+    parser.add_argument("-f", "--filtered_mfovs_pkl", metavar="filtered_mfovs_pkl", type=str,
+                        help="The name of the pkl file that has a per section mfovs list (default: None)",
+                        default=None)
+    parser.add_argument("-w", "--wafer_num", metavar="wafer_num", type=int,
+                        help="Manually set the wafer number for the output files (default: parse from wafer folder)",
+                        default=None)
     
     return parser.parse_args(args)
 
+def parse_filtered_mfovs(filtered_mfovs_pkl):
+    with open(filtered_mfovs_pkl, 'rb') as in_f:
+        data = pickle.load(in_f)
+    filtered_mfovs_map = {}
+    # map the filtered_mfovs_map and the sorted_sec_keys
+    for k, v in data.items():
+        wafer_num = int(k.split('_')[0][1:])
+        section_num = int(k.split('_')[1][1:4])
+#         v[0] = v[0].replace('\\', '/')
+#         v[1] = set(int(mfov_num) for mfov_num in v[1])
+#         filtered_mfovs_map[wafer_num, section_num] = v
+        filtered_mfovs_map[wafer_num, section_num] = set(int(mfov_num) for mfov_num in v[1])
+ 
+    return filtered_mfovs_map
 
 def create_tilespecs(args):
 
@@ -63,6 +87,12 @@ def create_tilespecs(args):
         missing_sections = [i for i in range(1, max(sorted_sec_keys)) if i not in sections_map]
         logger.report_event("Missing sections: {}".format(missing_sections), log_level=logging.WARN)
     
+    # if there's a filtered mfovs file, parse it
+    filtered_mfovs_map = None
+    if args.filtered_mfovs_pkl is not None:
+        logger.report_event("Filtering sections mfovs", log_level=logging.INFO)
+        filtered_mfovs_map = parse_filtered_mfovs(args.filtered_mfovs_pkl)
+
     logger.report_event("Outputing sections to tilespecs directory: {}".format(args.output_dir), log_level=logging.INFO)
 
     if not os.path.exists(args.output_dir):
@@ -71,20 +101,27 @@ def create_tilespecs(args):
     for sec_num in sorted_sec_keys:
         # extract wafer and section# from directory name
         if isinstance(sections_map[sec_num], list):
-            wafer_num, sec_num = sec_dir_to_wafer_section(sections_map[sec_num][0])
+            wafer_num, sec_num = sec_dir_to_wafer_section(os.path.dirname(sections_map[sec_num][0]), args.wafer_num)
         else:
-            wafer_num, sec_num = sec_dir_to_wafer_section(sections_map[sec_num])
+            wafer_num, sec_num = sec_dir_to_wafer_section(sections_map[sec_num], args.wafer_num)
         out_ts_fname = os.path.join(args.output_dir, 'W{}_Sec{}_montaged.json'.format(str(wafer_num).zfill(2), str(sec_num).zfill(3)))
         if os.path.exists(out_ts_fname):
             logger.report_event("Already found tilespec: {}, skipping".format(os.path.basename(out_ts_fname)), log_level=logging.INFO)
             continue
 
+        sec_relevant_mfovs = None
+        if filtered_mfovs_map is not None:
+            if (wafer_num, sec_num) not in filtered_mfovs_map:
+                logger.report_event("WARNING: cannot find filtered data for (wafer, sec): {}, skipping".format((wafer_num, sec_num)), log_level=logging.INFO)
+                continue
+            sec_relevant_mfovs = filtered_mfovs_map[wafer_num, sec_num]
+
         layer_num = get_layer_num(sec_num, args.initial_layer_num)
         if isinstance(sections_map[sec_num], list):
             # TODO - not implemented yet
-            section = Section.create_from_mfovs_image_coordinates(sections_map[sec_num], layer_num)
+            section = Section.create_from_mfovs_image_coordinates(sections_map[sec_num], layer_num, relevant_mfovs=sec_relevant_mfovs)
         else:
-            section = Section.create_from_full_image_coordinates(sections_map[sec_num], layer_num)
+            section = Section.create_from_full_image_coordinates(sections_map[sec_num], layer_num, relevant_mfovs=sec_relevant_mfovs)
         section.save_as_json(out_ts_fname)
 
 if __name__ == '__main__':
