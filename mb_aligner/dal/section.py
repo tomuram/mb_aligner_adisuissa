@@ -98,7 +98,7 @@ class Section(object):
 
 
     @classmethod
-    def create_from_full_image_coordinates(cls, full_image_coordinates_fname, layer, tile_size=None, **kwargs):
+    def create_from_full_image_coordinates(cls, full_image_coordinates_fname, layer, tile_size=None, relevant_mfovs=None, **kwargs):
         """
         Creates a section from a given full_image_coordinates filename
         """
@@ -125,6 +125,8 @@ class Section(object):
             # fetch mfov_idx, and tile_idx
             split_data = os.path.basename(tile_fname).split('_')
             mfov_idx = int(split_data[1])
+            if relevant_mfovs is not None and mfov_idx not in relevant_mfovs:
+                continue
             tile_idx = int(split_data[2])
             print('adding mfov_idx %d, tile_idx %d' % (mfov_idx, tile_idx))
             tile = Tile.create_from_input(tile_fname, tile_size, (tile_x, tile_y), layer, mfov_idx, tile_idx)
@@ -133,8 +135,8 @@ class Section(object):
         all_mfovs = {mfov_idx:Mfov(mfov_tiles_list) for mfov_idx, mfov_tiles_list in per_mfov_tiles.items()}
 
         # Just take any tile's width and height to compute the max_x,y values
-        max_x = np.max(x_locs) + tile.width
-        max_y = np.max(y_locs) + tile.width
+        max_x = np.max(x_locs) + tile_size[1]
+        max_y = np.max(y_locs) + tile_size[0]
         bbox = [0, max_x, 0, max_y]
 
         return Section(all_mfovs, layer=layer, bbox=bbox, **kwargs)
@@ -183,7 +185,7 @@ class Section(object):
 
 
     @classmethod
-    def create_from_mfovs_image_coordinates(cls, mfovs_image_coordinates_fnames, layer, tile_size=None, **kwargs):
+    def create_from_mfovs_image_coordinates(cls, mfovs_image_coordinates_fnames, layer, tile_size=None, relevant_mfovs=None, **kwargs):
         """
         Creates a section from multiple per-mfov image_coordinates filenames
         """
@@ -215,6 +217,8 @@ class Section(object):
             # fetch mfov_idx, and tile_idx
             split_data = os.path.basename(tile_fname).split('_')
             mfov_idx = int(split_data[1])
+            if relevant_mfovs is not None and mfov_idx not in relevant_mfovs:
+                continue
             tile_idx = int(split_data[2])
             print('adding mfov_idx %d, tile_idx %d' % (mfov_idx, tile_idx))
             tile = Tile.create_from_input(tile_fname, tile_size, (tile_x, tile_y), layer, mfov_idx, tile_idx)
@@ -223,8 +227,8 @@ class Section(object):
         all_mfovs = {mfov_idx:Mfov(mfov_tiles_list) for mfov_idx, mfov_tiles_list in per_mfov_tiles.items()}
 
         # Just take any tile's width and height to compute the max_x,y values
-        max_x = np.max(x_locs) + tile.width
-        max_y = np.max(y_locs) + tile.width
+        max_x = np.max(x_locs) + tile_size[1]
+        max_y = np.max(y_locs) + tile_size[0]
         bbox = [0, max_x, 0, max_y]
 
         return Section(all_mfovs, layer=layer, bbox=bbox, **kwargs)
