@@ -250,8 +250,8 @@ class StackAligner(object):
                     # No block matching, use the pre-match results as bi-directional fine-matches
                     cur_matches = [filtered_matches for model, filtered_matches in pre_match_results[sec1_idx, sec2_idx].values() if filtered_matches is not None]
                     if len(cur_matches) == 1:
-                        fine_match_results[sec1_idx, sec2_idx] = cur_matches
-                        fine_match_results[sec2_idx, sec1_idx] = [cur_matches[1], cur_matches[0]]
+                        fine_match_results[sec1_idx, sec2_idx] = cur_matches[0]
+                        fine_match_results[sec2_idx, sec1_idx] = [fine_match_results[sec1_idx, sec2_idx][1], fine_match_results[sec1_idx, sec2_idx][0]]
                     else:
                         fine_match_results[sec1_idx, sec2_idx] = np.concatenate(cur_matches, axis=1)
                         fine_match_results[sec2_idx, sec1_idx] = [fine_match_results[sec1_idx, sec2_idx][1], fine_match_results[sec1_idx, sec2_idx][0]]
