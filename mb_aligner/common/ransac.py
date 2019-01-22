@@ -276,9 +276,10 @@ def ransac(sample_matches, test_matches, target_model_type, iterations, epsilon,
             if max_stretch is not None and not check_model_stretch(model_matrix, max_stretch):
                 continue
             # if the proposed model distorts the image too much, skip the model
-            det = np.linalg.det(model_matrix)
-            if det < 1.0 - det_delta or det > 1.0 + det_delta:
-                continue
+            if det_delta is not None:
+                det = np.linalg.det(model_matrix)
+                if det < 1.0 - det_delta or det > 1.0 + det_delta:
+                    continue
 
             # Compare the triangle angles
             if tri_angles_comparator is not None:
