@@ -21,8 +21,8 @@ class FeaturesMatcher(object):
         self._params["min_inlier_ratio"] = kwargs.get("min_inlier_ratio", 0.01)
         self._params["min_num_inlier"] = kwargs.get("min_num_inliers", 7)
         self._params["max_trust"] = kwargs.get("max_trust", 3)
-        self._params["det_delta"] = kwargs.get("det_delta", 0.9)
-        self._params["max_stretch"] = kwargs.get("max_stretch", 0.25)
+        self._params["det_delta"] = kwargs.get("det_delta", None)
+        self._params["max_stretch"] = kwargs.get("max_stretch", None)
         self._params["avoid_robust_filter"] = kwargs.get("avoid_robust_filter", False)
 
         self._params["use_regularizer"] = True if "use_regularizer" in kwargs.keys() else False
