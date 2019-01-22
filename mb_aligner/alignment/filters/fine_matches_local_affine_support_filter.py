@@ -26,10 +26,10 @@ class FineMatchesAffineSupportFilter(object):
         self._min_inlier_ratio = kwargs.get("min_inlier_ratio", 0)
         self._min_num_inlier = kwargs.get("min_num_inlier", 3)
         self._max_trust = kwargs.get("max_trust", 3)
-        self._det_delta = kwargs.get("det_delta", 0.99)
-        self._max_stretch = kwargs.get("max_stretch", 0.99)
+        self._det_delta = kwargs.get("det_delta", None)
+        self._max_stretch = kwargs.get("max_stretch", None)
         self._robust_filter = True if "robust_filter" in kwargs else False
-        self._window_size = 4
+        self._window_size = 2
         #print("self._max_epsilon", self._max_epsilon)
         assert(self._support_radius > 1)
         #assert(self._min_matches >= 3)
