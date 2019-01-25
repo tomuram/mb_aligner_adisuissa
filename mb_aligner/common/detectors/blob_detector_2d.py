@@ -12,6 +12,7 @@ class BlobDetector2D(object):
         # create the blob detector and the sift detector (for the descriptor)
         blob_params = kwargs.get("blob_params", {})
         sift_params = kwargs.get("sift_params", {})
+        self._use_clahe = kwargs.get("use_clahe", True)
 
         self._blob_detector = BlobDetector2D._create_blob_detector(**blob_params)
         self._sift_detector = cv2.xfeatures2d.SIFT_create(**sift_params)
@@ -56,14 +57,17 @@ class BlobDetector2D(object):
         Performs the detection and description on the given image.
         Note that the kps parameter is unused (only here to be coherent with OpenCV's feature detector methods)
         '''
+        img_filtered = img
         # apply a clahe filter
-        #img_med_clahe = clahe.apply(img_med)
-        img_clahe = self._clahe.apply(img)
-        #img_equ = cv2.equalizeHist(img)
+        if self._use_clahe:
+            img_filtered = self._clahe.apply(img)
+            #img_med_clahe = clahe.apply(img_med)
+            #img_clahe = self._clahe.apply(img)
+            #img_equ = cv2.equalizeHist(img)
 
         # Detect round blobs
         #blob_kps = blob_detector.detect(img_med_clahe)
-        blob_kps = self._blob_detector.detect(img_clahe)
+        blob_kps = self._blob_detector.detect(img_filtered)
         #blob_kps = blob_detector.detect(img_equ)
 
         if blob_kps is None or len(blob_kps) == 0:
