@@ -548,7 +548,7 @@ class ElasticMeshOptimizer(object):
 def mean_offsets(meshes, links, stop_at_sec_idx, plot=False, from_sec_idx=None):
     means = []
     for (sec1_idx, sec2_idx), ((idx1, w1), (idx2, w2)) in links.items():
-        if sec1_idx > stop_at_sec_idx or sec2_idx > stop_at_sec_idx:
+        if sec1_idx >= stop_at_sec_idx or sec2_idx >= stop_at_sec_idx:
             continue
         if from_sec_idx is not None:
             if sec1_idx < from_sec_idx or sec2_idx < from_sec_idx:
