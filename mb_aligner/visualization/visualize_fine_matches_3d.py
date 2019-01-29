@@ -125,7 +125,7 @@ class FineMatches3DVisualizer(object):
 
         # Add the mfov text
         sec_centers_proj = {mfov_index: PreMatch3DAffineResultVisualizer._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec_mfovs_tiles_proj.items()}
-        PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec_centers_proj, 'green')
+        PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec_centers_proj)
         
 
 

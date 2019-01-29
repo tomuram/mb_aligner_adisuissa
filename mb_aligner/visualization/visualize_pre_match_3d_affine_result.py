@@ -99,8 +99,11 @@ class PreMatch3DAffineResultVisualizer(object):
             ax.add_patch(patch)
 
     @staticmethod
-    def _add_mfovs_text(ax, sec_centers_proj, color):
+    def _add_mfovs_text(ax, sec_centers_proj, colors_map=None):
         for mfov_index, mfov_center in sec_centers_proj.items():
+            color = 'green'
+            if colors_map is not None:
+                color = colors_map[mfov_index]
             ax.text(mfov_center[0], mfov_center[1], '{}'.format(mfov_index), color=color)
         
 
@@ -203,8 +206,11 @@ class PreMatch3DAffineResultVisualizer(object):
         sec1_centers_proj = {mfov_index: PreMatch3DAffineResultVisualizer._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec1_mfovs_tiles_proj.items()}
         sec2_centers_proj = {mfov_index: PreMatch3DAffineResultVisualizer._find_center(mfov_pts_list) for mfov_index, mfov_pts_list in sec2_mfovs_tiles_proj.items()}
 
-        PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec1_centers_proj, 'red')
-        PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec2_centers_proj, 'green')
+        sec1_centers_colors_map = {mfov_index:'red' if mfov_index in mfov_transformation.keys() else 'black' for mfov_index in  sec1_centers_proj.keys()}
+        sec2_centers_colors_map = {mfov_index:'green' for mfov_index in sec2_centers_proj.keys()}
+
+        PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec1_centers_proj, sec1_centers_colors_map)
+        PreMatch3DAffineResultVisualizer._add_mfovs_text(ax, sec2_centers_proj, sec2_centers_colors_map)
         
         ax.set_title(title)
 
