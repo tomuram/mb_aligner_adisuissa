@@ -497,10 +497,14 @@ class ElasticMeshOptimizer(object):
                 exported_sec_idxs = range(block_lo, block_hi)
             else:
                 exported_sec_idxs = range(block_lo, block_hi - (self._block_size - self._block_step))
+            
+            pool_results = []
             for active_sec_idx in exported_sec_idxs:
-                #out_positions = [meshes[active_sec_idx].orig_pts,
-                #                 meshes[active_sec_idx].pts]
-                export_mesh_func(layout['sections'][active_sec_idx], meshes[active_sec_idx].orig_pts, meshes[active_sec_idx].pts, self._mesh_spacing)
+                #export_mesh_func(layout['sections'][active_sec_idx], meshes[active_sec_idx].orig_pts, meshes[active_sec_idx].pts, self._mesh_spacing)
+                res = pool.apply_async(export_mesh_func, (layout['sections'][active_sec_idx], meshes[active_sec_idx].orig_pts, meshes[active_sec_idx].pts, self._mesh_spacing))
+                pool_results.append(res)
+            for res in pool_results:
+                res.get()
 
             # Checkpoint the current block (if it is not the last)
             if self._checkpoints_dir is not None and not last_block:

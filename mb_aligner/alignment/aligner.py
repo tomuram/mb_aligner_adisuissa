@@ -23,6 +23,7 @@ from mb_aligner.common.intermediate_results_dal_pickle import IntermediateResult
 import importlib
 import gc
 from mb_aligner.common.thread_local_storage_lru import ThreadLocalStorageLRU
+import functools
 
 
 class StackAligner(object):
@@ -332,7 +333,9 @@ class StackAligner(object):
         # optimize the matches
         logger.report_event("Optimizing the matches...", log_level=logging.INFO)
 
-        self._optimizer.optimize(layout, fine_match_results, lambda section, orig_pts, new_pts, mesh_spacing: update_section_post_optimization_and_save(section, orig_pts, new_pts, mesh_spacing, self._post_opt_dir), self._processes_pool)
+        update_section_post_optimization_and_save_partial = functools.partial(update_section_post_optimization_and_save, out_dir=self._post_opt_dir)
+        #self._optimizer.optimize(layout, fine_match_results, lambda section, orig_pts, new_pts, mesh_spacing: update_section_post_optimization_and_save(section, orig_pts, new_pts, mesh_spacing, self._post_opt_dir), self._processes_pool)
+        self._optimizer.optimize(layout, fine_match_results, update_section_post_optimization_and_save_partial, self._processes_pool)
 
 
         # TODO - normalize all the sections (shift everything so we'll have a (0, 0) coordinate system for the stack)
