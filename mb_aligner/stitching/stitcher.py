@@ -32,10 +32,10 @@ class DetectorWorker(object):
 
     def run(self):
         # Read a job from input queue (blocking)
-        print('Detector running')
+        #print('Detector running')
 
         while True:
-            print("Detector queue size:", self._input_queue.qsize())
+            #print("Detector queue size:", self._input_queue.qsize())
             job = self._input_queue.get()
             if job is None:
                 break
@@ -44,8 +44,8 @@ class DetectorWorker(object):
             out_queue_idx, tile_id, tile, start_point, crop_bbox = job
             out_queue = self._all_result_queues[out_queue_idx]
             # process the job
-            print("Received job:", job)
-            print("Reading file:", tile.img_fname)
+            #print("Received job:", job)
+            #print("Reading file:", tile.img_fname)
             #img = cv2.imread(tile_fname, 0)
             img = tile.image
             if crop_bbox is not None:
@@ -62,7 +62,7 @@ class DetectorWorker(object):
                 img = img[local_crop_bbox[2]:local_crop_bbox[3], local_crop_bbox[0]:local_crop_bbox[1]]
                 #print("local_crop_bbox: {}".format(local_crop_bbox))
                 
-            print("detecting features file:", job[1])
+            #print("detecting features file:", job[1])
             kps, descs = self._detector.detect(img)
             # Create an array of the points of the kps
             kps_pts = np.empty((len(kps), 2), dtype=np.float64)
@@ -79,7 +79,7 @@ class DetectorWorker(object):
                 kps_pts[:, 1] += local_crop_bbox[2]
             # result = (tile fname, local area, features pts, features descs)
             # Put result in matcher's result queue
-            print("submitting result for:", tile.img_fname)
+            #print("submitting result for:", tile.img_fname)
             #print("Result[:30]:\n{}".format(kps_pts[:30]))
             out_queue.put((tile_id, kps_pts, descs))
 
@@ -95,10 +95,10 @@ class MatcherWorker(object):
 
     def run(self):
         # Read a job from input queue (blocking)
-        print('Detector running')
+        #print('Detector running')
 
         while True:
-            print("Matcher queue size:", self._input_queue.qsize())
+            #print("Matcher queue size:", self._input_queue.qsize())
             job = self._input_queue.get()
             if job is None:
                 break
@@ -111,7 +111,7 @@ class MatcherWorker(object):
 #             tile_fname1, start_point1 = all_tiles_list[tile_idx1]
 #             tile_fname2, start_point2 = all_tiles_list[tile_idx2]
             # process the job
-            print("Received match job:", match_idx)
+            #print("Received match job:", match_idx)
             # Find shared bounding box
             extend_delta = 50 # TODO - should be a parameter
             #extend_delta = 100 # TODO - should be a parameter
@@ -130,12 +130,12 @@ class MatcherWorker(object):
 #                             min(start_point1[1] + img_shape[0], start_point2[1] + img_shape[0]) + extend_delta]
 
             # Send two detector jobs
-            print('Submitting job1 to detectors_in_queue')
+            #print('Submitting job1 to detectors_in_queue')
             #job1 = (self._matcher_queue, tile1_id, tile1, (bbox1[0], bbox1[2]), intersection)
             tile1_id = (tile1.layer, tile1.mfov_index, tile1.tile_index)
             job1 = (self._matcher_thread_idx, tile1_id, tile1, (bbox1[0], bbox1[2]), intersection)
             self._detectors_in_queue.put(job1)
-            print('Submitting job2 to detectors_in_queue')
+            #print('Submitting job2 to detectors_in_queue')
             #job2 = (self._matcher_queue, tile2_id, tile2, (bbox2[0], bbox2[2]), intersection)
             tile2_id = (tile2.layer, tile2.mfov_index, tile2.tile_index)
             job2 = (self._matcher_thread_idx, tile2_id, tile2, (bbox2[0], bbox2[2]), intersection)
@@ -196,7 +196,7 @@ class ThreadWrapper(object):
 
     @staticmethod
     def init_and_run(ctor, args, **kwargs):
-        print("ctor:", ctor)
+        #print("ctor:", ctor)
         #print("args:", args[0])
         worker = ctor(*args[0], **kwargs)
         worker.run()
@@ -468,7 +468,7 @@ class Stitcher(object):
             # job = (match_idx, tile1, tile2)
             job = (len(match_jobs), tile1, tile2)
             match_jobs.append((tile1, tile2))
-            print('Submitting matching job')
+            #print('Submitting matching job')
             self._matchers_in_queue.put(job)
 
 
@@ -514,7 +514,7 @@ class Stitcher(object):
                 logger.report_event("Could not find a transformation for tile {} in the optimization result, skipping tile".format(tile_unique_idx), log_level=logging.WARNING)
             else:
                 tile.set_transform(optimized_transforms_map[tile_unique_idx])
-                print("Mfov {}, transform:\n{}".format(tile.mfov_index, tile.transforms[0].get_matrix()))
+                #print("Mfov {}, transform:\n{}".format(tile.mfov_index, tile.transforms[0].get_matrix()))
 
 
 
@@ -545,13 +545,13 @@ def test_detector(section_dir, conf_fname, workers_num, files_num):
     for img_fname in img_fnames:
         # job = (matcher's result queue idx, tile fname, local area)
         job1 = (0, img_fname, np.array([150, 100]), None)
-        print('Submitting job to detector_in_queue')
+        #print('Submitting job to detector_in_queue')
         detector_in_queue.put(job1)
 
     for i in range(len(img_fnames)):
-        print('Fetching results from detector_result_queue')
+        #print('Fetching results from detector_result_queue')
         res = detector_result_queue.get()
-        print("Detector result:", res[0], len(res[2][0]))
+        #print("Detector result:", res[0], len(res[2][0]))
     
     print("Closing all detectors")
     for i in range(workers_num):
