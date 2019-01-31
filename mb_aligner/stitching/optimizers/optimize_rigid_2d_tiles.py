@@ -1,3 +1,5 @@
+from rh_logger.api import logger
+import logging
 import numpy as np
 from scipy.optimize import least_squares
 import pickle
@@ -146,20 +148,22 @@ class Rigid2DOptimizer(object):
         cur_p = p0
         #cur_cost = np.sum(optimize_func(cur_p, *args))
         cur_cost = compute_cost_huber(optimize_func, cur_p, args, self._huber_delta)
-        print("Initial cost: {}".format(cur_cost))
+        logger.report_event("Initial cost: {}".format(cur_cost), log_level=logging.INFO)
         gamma = self._init_gamma
 
         for it in range(self._max_iterations):
-            print("Iteration {}".format(it))
+            #print("Iteration {}".format(it))
             prev_p = cur_p
             prev_cost = cur_cost
             cur_p = prev_p - gamma * grad_F_huber(self._huber_delta, prev_p, *args)
             #print("New params: {}".format(cur_p))
             #cur_cost = np.sum(optimize_func(cur_p, *args))
             cur_cost = compute_cost_huber(optimize_func, cur_p, args, self._huber_delta)
-            print("New cost: {}".format(cur_cost))
+            #print("New cost: {}".format(cur_cost))
+            if it % 100 == 0:
+                logger.report_event("iter {}: C: {}".format(it, cur_cost), log_level=logging.INFO)
             if cur_cost > prev_cost: # we took a bad step: undo it, scale down gamma, and start over
-                print("Backtracking step")
+                #print("Backtracking step")
                 cur_p = prev_p
                 cur_cost = prev_cost
                 gamma *= 0.5
@@ -171,6 +175,7 @@ class Rigid2DOptimizer(object):
                 break
 
         #print("The local minimum occurs at", cur_p)
+        logger.report_event("Post-opt cost: {}".format(cur_cost), log_level=logging.INFO)
         return cur_p
 
 
@@ -196,7 +201,7 @@ class Rigid2DOptimizer(object):
             # For debug:
             solution1 = {name:[0, orig_locs[name][0], orig_locs[name][1]] for name, idx in tile_names_map.items()}
             dists = Rigid2DOptimizer.compute_all_dists(matches, solution1, matches_num)
-            print("pre optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)))
+            logger.report_event("pre optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)), log_level=logging.INFO)
 
             st_time = time.time()
             # Find an initial translation only transformation for each tile (better than the initial assumption)
@@ -225,7 +230,8 @@ class Rigid2DOptimizer(object):
             #p0_translate_x = np.array([orig_locs[k][0] for k in tile_names]) # [t_x1, t_x2, ...] with the original locations
             Tx = lsqr(A, b[:, 0], damp=self._damping)[0]
             Ty = lsqr(A, b[:, 1], damp=self._damping)[0]
-            print("translation-only optimization time: {} seconds".format(time.time() - st_time))
+            logger.report_event("translation-only optimization time: {} seconds".format(time.time() - st_time), log_level=logging.INFO)
+            
             # Normalize all deltas to (0, 0)
             Tx -= np.min(Tx)
             Ty -= np.min(Ty)
@@ -236,7 +242,7 @@ class Rigid2DOptimizer(object):
             #solution2 = {name:[0, p0[1::3][idx], p0[2::3][idx]] for name, idx in tile_names_map.items()}
             solution2 = {name:[0, Tx[idx], Ty[idx]] for name, idx in tile_names_map.items()}
             dists = Rigid2DOptimizer.compute_all_dists(matches, solution2, matches_num)
-            print("post translation optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)))
+            logger.report_event("post translation optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)), log_level=logging.INFO)
         else:
             p0[1::3] = [orig_locs[k][0] for k in tile_names] # set default X to original location's X
             p0[2::3] = [orig_locs[k][1] for k in tile_names] # set default Y to original location's Y
@@ -258,7 +264,7 @@ class Rigid2DOptimizer(object):
         res = self._gradient_descent(Rigid2DOptimizer.optimize_func, p0, Rigid2DOptimizer.grad_F_huber, args=(tile_names_map, matches, matches_num))
         end_time = time.time()
 
-        print("non-linear optimization time: {} seconds".format(end_time - st_time))
+        logger.report_event("non-linear optimization time: {} seconds".format(end_time - st_time), log_level=logging.INFO)
 
         solution = {}
         if res is not None:
@@ -268,7 +274,7 @@ class Rigid2DOptimizer(object):
             raise Exception("Could not find a valid solution to the optimization problem")
 
         dists = Rigid2DOptimizer.compute_all_dists(matches, solution, matches_num)
-        print("post optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)))
+        logger.report_event("post optimization distances: min={}, mean={}, median={}, max={}".format(np.min(dists), np.mean(dists), np.median(dists), np.max(dists)), log_level=logging.INFO)
 
         # create the optimized models for each tile
         optimized_models = {name:RigidModel(res[idx*3], res[idx*3+1:idx*3+3]) for name, idx in tile_names_map.items()}
