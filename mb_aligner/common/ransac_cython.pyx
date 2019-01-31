@@ -360,7 +360,7 @@ def ransac_translation(
     """
     Ransac optimized for 2d translation transformations only
     """
-    printf("len(sample_matches[0]): %d\n", len(sample_matches[0]))
+    #printf("len(sample_matches[0]): %d\n", len(sample_matches[0]))
     if len(sample_matches[0]) < MinMatchesNumTranslation:
         return RANSAC_NOT_ENOUGH_POINTS, None, None
 
