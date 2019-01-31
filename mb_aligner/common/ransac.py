@@ -398,3 +398,27 @@ def filter_matches(sample_matches, test_matches, target_model_type, iterations, 
         inliers_mask[inliers_mask == True][filtered_inliers_mask == False] = False # clear everrything that's not set by filtered_inliers_mask
         return new_model, filtered_matches, inliers_mask
 
+
+def decompose_affine_matrix(m):
+    """
+    Decomposing the above using: https://math.stackexchange.com/questions/78137/decomposition-of-a-nonsquare-affine-matrix (first answer)
+    the decomposition of the 2*2 matrix (w/o translation) is as follows:
+    
+    [[ a, b],   =    [[p, 0],  *  [[1, 0],  *  [[cosT, sinT], 
+     [ d, e]]         [0, r]]      [q, 1]]      [-sinT, cosT]]
+    
+    2*2 matrix  =    scale     *   shear    *   rotation
+    """
+    m = m[:2, :2]
+    p = math.sqrt(m[0, 0]**2 + m[0, 1]**2)
+    r = (m[0, 0] * m[1, 1] - m[0, 1] * m[1, 0])/p
+    q = (m[0, 0] * m[1, 0] + m[0, 1] * m[1, 1])/(m[0, 0] * m[1, 1] - m[0, 1] * m[1, 0])
+    theta = math.atan2(m[1, 0], m[0, 0])
+
+    rot_mat = np.array([[math.cos(theta), -math.sin(theta)],
+                        [math.sin(theta), math.cos(theta)]])
+    shear_mat = np.array([[1, 0],
+                          [q, 1]])
+    scale_mat = np.array([[p, 0],
+                          [0, r]])
+    return scale_mat, shear_mat, rot_mat, np.dot(scale_mat, np.dot(shear_mat, rot_mat))
