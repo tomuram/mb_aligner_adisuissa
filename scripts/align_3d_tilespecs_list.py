@@ -52,7 +52,7 @@ def run_aligner(args):
             tilespec = ujson.load(in_f)
         
         wafer_num = int(os.path.basename(ts_fname).split('_')[0].split('W')[1])
-        sec_num = int(os.path.basename(ts_fname).split('_')[1].split('Sec')[1])
+        sec_num = int(os.path.basename(ts_fname).split('.')[0].split('_')[1].split('Sec')[1])
         sections.append(Section.create_from_tilespec(tilespec, wafer_section=(wafer_num, sec_num)))
 
     logger.report_event("Initializing aligner", log_level=logging.INFO)
