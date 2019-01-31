@@ -202,7 +202,7 @@ def ransac_rigid(
     """
     Ransac optimized for 2d rigid transformations only
     """
-    printf("len(sample_matches[0]): %d\n", len(sample_matches[0]))
+    #printf("len(sample_matches[0]): %d\n", len(sample_matches[0]))
     if len(sample_matches[0]) < MinMatchesNumRigid:
         return RANSAC_NOT_ENOUGH_POINTS, None, None
 
