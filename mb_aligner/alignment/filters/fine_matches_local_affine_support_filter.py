@@ -126,7 +126,7 @@ class FineMatchesAffineSupportFilter(object):
         # Find the min/max x,y of the keys
         grid_keys = np.array(list(grid.keys()))
         keys_min_xy = np.min(grid_keys, axis=0)
-        keys_max_xy = np.max(grid_keys, axis=0)
+        keys_max_xy = np.max(grid_keys, axis=0) + 1
 
         async_res = []
         all_valid_matches = [[], []]
