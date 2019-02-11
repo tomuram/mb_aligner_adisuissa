@@ -293,7 +293,7 @@ class ElasticMeshOptimizer(object):
                         #if active_ts in (ts1, ts2) and (layers[ts1] <= layers[active_ts]) and (layers[ts2] <= layers[active_ts]):
                         pts1 = np.einsum('ijk,ij->ik', meshes[sec1_idx].pts[idx1], w1)
                         pts2 = np.einsum('ijk,ij->ik', meshes[sec2_idx].pts[idx2], w2)
-                        logger.report_event("Matches # (sections {}->{}): {}.".format(sec1_idx, sec2_idx, pts1.shape[0]), log_level=logging.INFO)#DEBUG)
+                        logger.report_event("Matches # (sections {}->{}): {}.".format(layout['sections'][sec1_idx].canonical_section_name, layout['sections'][sec2_idx].canonical_section_name, pts1.shape[0]), log_level=logging.INFO)#DEBUG)
                         if sec1_idx == active_sec_idx:
                             cur_rot, cur_tran = self._get_transform_matrix(pts1, pts2)
                             cur_norm_weights = norm_weights[sec1_idx, sec2_idx]
