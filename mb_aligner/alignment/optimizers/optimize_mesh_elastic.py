@@ -344,7 +344,7 @@ class ElasticMeshOptimizer(object):
                 active_sec_layer = layout['sections'][active_sec_idx].layer
                 for neighbor_sec_idx in layout['neighbors'][active_sec_idx]:
                     neighbor_layer = layout['sections'][neighbor_sec_idx].layer
-                    if neighbor_layer < active_sec_layer:
+                    if neighbor_sec_idx < active_sec_idx:
                         # take both (active_sec, neighbor_sec) and (neighbor_sec, active_sec) into account
                         for (sec1_idx, sec2_idx), ((idx1, w1), (idx2, w2)) in [((active_sec_idx, neighbor_sec_idx), links[active_sec_idx, neighbor_sec_idx]), ((neighbor_sec_idx, active_sec_idx), links[neighbor_sec_idx, active_sec_idx])]:
 #                             if ts1 not in block_tss and ts2 not in block_tss:
