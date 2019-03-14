@@ -209,6 +209,15 @@ class PreMatch3DFullSectionThenMfovsBlobs(object):
         logger.report_event("Global model found between section {} (all mfovs) and section {} (all mfovs):\n{}".format(sec1.canonical_section_name, sec2.canonical_section_name, global_model.get_matrix()), log_level=logging.INFO)
         print("DECOMPOSED MATRIX: ", mb_aligner.common.ransac.decompose_affine_matrix(global_model.get_matrix()))
 
+        if sec1.mfovs_num == 1:
+            logger.report_event("Section {} has a single mfov, using the global model between section {} and section {}:\n{}".format(sec1.canonical_section_name, sec1.canonical_section_name, sec2.canonical_section_name, global_model.get_matrix()), log_level=logging.INFO)
+            
+            mfov_index = next(sec1.mfovs()).mfov_index
+
+            pre_match_res[mfov_index] = (global_model, global_filtered_matches)
+            return pre_match_res
+
+
         # Create section2 tile's bounding box rtree, so it would be faster to search it
         # TODO - maybe store it in cache, because it might be used by other comparisons of this section
         sec2_rtree = tinyr.RTree(interleaved=False, max_cap=5, min_cap=2)

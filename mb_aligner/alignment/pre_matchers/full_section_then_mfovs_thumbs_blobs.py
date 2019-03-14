@@ -8,6 +8,7 @@ import logging
 import rh_logger
 from mb_aligner.common.thread_local_storage_lru import ThreadLocalStorageLRU
 import tinyr
+import mb_aligner.common.ransac
 
 
 class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
@@ -203,6 +204,15 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
             # TODO - write to log, and return None
             return None
         logger.report_event("Global model found between section {} (all mfovs) and section {} (all mfovs):\n{}".format(sec1.canonical_section_name, sec2.canonical_section_name, global_model.get_matrix()), log_level=logging.INFO)
+        print("DECOMPOSED MATRIX: ", mb_aligner.common.ransac.decompose_affine_matrix(global_model.get_matrix()))
+
+        if sec1.mfovs_num == 1:
+            logger.report_event("Section {} has a single mfov, using the global model between section {} and section {}:\n{}".format(sec1.canonical_section_name, sec1.canonical_section_name, sec2.canonical_section_name, global_model.get_matrix()), log_level=logging.INFO)
+
+            mfov_index = next(sec1.mfovs()).mfov_index
+
+            pre_match_res[mfov_index] = (global_model, global_filtered_matches)
+            return pre_match_res
 
         # Create section2 tile's bounding box rtree, so it would be faster to search it
         # TODO - maybe store it in cache, because it might be used by other comparisons of this section
@@ -229,6 +239,7 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
                 logger.report_event("No local model found between section {} (mfov {}) and section {}".format(sec1.canonical_section_name, mfov_index, sec2.canonical_section_name), log_level=logging.INFO)
             else:
                 logger.report_event("Found local model between section {} (mfov {}) and section {}:\n{}".format(sec1.canonical_section_name, mfov_index, sec2.canonical_section_name, mfovs1_model.get_matrix()), log_level=logging.INFO)
+                print("DECOMPOSED MATRIX: ", mb_aligner.common.ransac.decompose_affine_matrix(mfovs1_model.get_matrix()))
             pre_match_res[mfov_index] = (mfovs1_model, mfovs1_filtered_matches)
 
         return pre_match_res
@@ -241,3 +252,30 @@ class PreMatch3DFullSectionThenMfovsThumbsBlobs(object):
 #         """
 #         new_obj = PreMatch3DFullSectionThenMfovsThumbsBlobs(**params)
 #         return [new_obj, new_obj.__classname__, ["_pre_match_compute_mfov_blobs", "_pre_match_sections_local"]]
+
+
+TRIANGLE_DELTAS = np.array([[0, -10000], [-5000, 5000], [5000, 5000]]) # The location of the points relative to the center of an mfov
+
+
+def find_triangle_angles(p1, p2, p3):
+    A = p2 - p1
+    B = p3 - p2
+    C = p1 - p3
+
+    angles = []
+    for e1, e2 in ((A, -B), (B, -C), (C, -A)):
+        num = np.dot(e1, e2)
+        denom = np.linalg.norm(e1) * np.linalg.norm(e2)
+        angles.append(np.arccos(num/denom) * 180 / np.pi)
+
+    return angles
+
+def triangles_similarity_compartor(tri_angles1, dist_thresh, center2, model2):
+    #logger.report_event("RANSAC threshold met: checking triangles similarity", log_level=logging.INFO)
+    tri_angles2 = find_triangle_angles(*model2.apply(center2 + TRIANGLE_DELTAS))
+    dists = np.abs([a - b for a,b in zip(tri_angles1, tri_angles2)])
+    if np.any(dists > dist_thresh):
+        #logger.report_event("Similarity threshold wasn't met - initial transform angles: {}, current transform angles: {}".format(tri_angles1, tri_angles2), log_level=logging.INFO)
+        return False
+    return True
+

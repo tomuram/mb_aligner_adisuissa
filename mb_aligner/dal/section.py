@@ -317,6 +317,14 @@ class Section(object):
         for mfov_idx in mfov_keys:
             yield self._mfovs_dict[mfov_idx]
 
+    @property
+    def mfovs_num(self):
+        """
+        Returns the number of mfovs in the section.
+        """
+        return len(self._mfovs_dict)
+
+
     def tiles(self):
         '''
         A generator that iterates over all the tiles in the section
