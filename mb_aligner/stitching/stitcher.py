@@ -476,6 +476,7 @@ class Stitcher(object):
         match_results_map = {}
         logger.report_event("Collecting matches results", log_level=logging.INFO)
         res_match_jobs_counter = 0
+        total_matches_num = 0
         while res_match_jobs_counter < len(match_jobs):
             match_idx, filtered_matches = self._matchers_out_queue.get()
             tile1, tile2 = match_jobs[match_idx]
@@ -488,6 +489,7 @@ class Stitcher(object):
                     self._missing_matches_policy.add_missing_match({(tile1_unique_idx, tile2_unique_idx): (tile1, tile2)})
             else:
                 match_results_map[(tile1_unique_idx, tile2_unique_idx)] = filtered_matches
+                total_matches_num += len(filtered_matches[0])
             res_match_jobs_counter += 1
 
         if self._missing_matches_policy is not None:
@@ -497,6 +499,11 @@ class Stitcher(object):
             self._missing_matches_policy.reset()
             
 
+        # verify that we have more than 2 matches:
+        if total_matches_num <= 2:
+            logger.report_event("Couldn't find enough matches for section {}, skipping optimization".format(section.canonical_section_name_no_layer), log_level=logging.ERROR)
+            return
+                
         logger.report_event("Starting optimization", log_level=logging.INFO)
         # Generate a map between tile and its original estimated location
         orig_locations = {}
