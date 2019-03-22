@@ -35,10 +35,10 @@ class FeaturesBlockMatcherDispatcher(object):
 
     class FeaturesBlockMatcher(object):
         def __init__(self, sec1, sec2, sec1_to_sec2_transform, sec1_cache_features, sec2_cache_features, **kwargs):
-            #self._scaling = kwargs.get("scaling", 0.2)
+            self._scaling = kwargs.get("scaling", 1.0)
             self._template_size = kwargs.get("template_size", 200)
             self._search_window_size = kwargs.get("search_window_size", 8 * self._template_size)
-            #logger.report_event("Actual template size: {} and window search size: {}".format(self._template_size, self._search_window_size), log_level=logging.INFO)
+            #logger.report_event("Actual template size: {} and window search size: {}".format(self._template_size * self._scaling, self._search_window_size * self._scaling), log_level=logging.INFO)
 
             # Parameters for PMCC filtering
             # self._min_corr = kwargs.get("min_correlation", 0.2)
@@ -57,28 +57,30 @@ class FeaturesBlockMatcherDispatcher(object):
 
             self._template_side = self._template_size / 2
             self._search_window_side = self._search_window_size / 2
+            #self._template_scaled_side = self._template_size * self._scaling / 2
+            #self._search_window_scaled_side = self._search_window_size * self._scaling / 2
 
             self._sec1 = sec1
             self._sec2 = sec2
             self._sec1_to_sec2_transform = sec1_to_sec2_transform
             self._inverse_model = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher.inverse_transform(self._sec1_to_sec2_transform)
-            
+
             self._sec1_cache_features = sec1_cache_features
             self._sec2_cache_features = sec2_cache_features
 
             # Create an rtree for each section's tiles, to quickly find the relevant tiles
-            self._sec1_tiles_rtree = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._create_tiles_bbox_rtree(sec1)
-            self._sec2_tiles_rtree = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._create_tiles_bbox_rtree(sec2)
+            self._sec1_tiles_rtree = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._create_tiles_bbox_rtree(sec1, self._scaling)
+            self._sec2_tiles_rtree = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._create_tiles_bbox_rtree(sec2, self._scaling)
             
             ####self._sec1_scaled_renderer.add_transformation(self._sec1_to_sec2_transform.get_matrix())
 
 
 
         @staticmethod
-        def _create_tiles_bbox_rtree(sec):
+        def _create_tiles_bbox_rtree(sec, scaling):
             sec_tiles_rtree = tinyr.RTree(interleaved=False, max_cap=5, min_cap=2)
             for t_idx, t in enumerate(sec.tiles()):
-                bbox = t.bbox
+                bbox = tuple(np.array(t.bbox) * scaling)
                 # using the (x_min, x_max, y_min, y_max) notation
                 sec_tiles_rtree.insert(t_idx, bbox)
             return sec_tiles_rtree
@@ -96,6 +98,7 @@ class FeaturesBlockMatcherDispatcher(object):
 
         @staticmethod
         def _fetch_sec_features(sec, sec_tiles_rtree, sec_cache_features, bbox):
+            # Assumes the rtree, the sec_cache_features, and the bbox are all after scaling
             relevant_features = [[], []]
             rect_res = sec_tiles_rtree.search(bbox)
             for t_idx in rect_res:
@@ -114,6 +117,9 @@ class FeaturesBlockMatcherDispatcher(object):
             
         
         def match_sec1_to_sec2_mfov(self, sec1_pts):
+            """
+            sec1_pts will be in the original space (before scaling)
+            """
             valid_matches = [[], [], []]
             invalid_matches = [[], []]
             if len(sec1_pts) == 0:
@@ -129,7 +135,7 @@ class FeaturesBlockMatcherDispatcher(object):
                 # Fetch the template around sec1_point (before transformation)
                 from_x1, from_y1 = sec1_pt - self._template_side
                 to_x1, to_y1 = sec1_pt + self._template_side
-                sec1_pt_features_kps, sec1_pt_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec1, self._sec1_tiles_rtree, self._sec1_cache_features, (from_x1, to_x1, from_y1, to_y1))
+                sec1_pt_features_kps, sec1_pt_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec1, self._sec1_tiles_rtree, self._sec1_cache_features, tuple(np.array([from_x1, to_x1, from_y1, to_y1]) * self._scaling))
 
                 if len(sec1_pt_features_kps) <= 1:
                     continue
@@ -137,19 +143,23 @@ class FeaturesBlockMatcherDispatcher(object):
                 # Fetch a large sub-image around img2_point (using search_window_scaled_size)
                 from_x2, from_y2 = sec2_pt_estimated - self._search_window_side
                 to_x2, to_y2 = sec2_pt_estimated + self._search_window_side
-                sec2_pt_est_features_kps, sec2_pt_est_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec2, self._sec2_tiles_rtree, self._sec2_cache_features, (from_x2, to_x2, from_y2, to_y2))
+                sec2_pt_est_features_kps, sec2_pt_est_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec2, self._sec2_tiles_rtree, self._sec2_cache_features, tuple(np.array([from_x2, to_x2, from_y2, to_y2]) * self._scaling))
         
                 if len(sec2_pt_est_features_kps) <= 1:
                     continue
 
-                # apply the transformation on sec1 feature points locations
-                sec1_pt_features_kps = self._sec1_to_sec2_transform.apply(sec1_pt_features_kps)
+                # apply the transformation on sec1 feature points locations (after upscaling and then downscaling again)
+                sec1_pt_features_kps = self._sec1_to_sec2_transform.apply(sec1_pt_features_kps / self._scaling) * self._scaling
                 # Match the features
                 transform_model, filtered_matches = self._matcher.match_and_filter(sec1_pt_features_kps, sec1_pt_features_descs, sec2_pt_est_features_kps, sec2_pt_est_features_descs)
                 if transform_model is None:
                     invalid_matches[0].append(sec1_pt)
                     invalid_matches[1].append(1)
                 else:
+                    # the transform model need to be scaled
+                    transform_matrix = transform_model.get_matrix()
+                    transform_model.set(transform_matrix[:2, 2].T / self._scaling)
+
                     # Compute the location of the matched point on sec2
                     sec2_pt = transform_model.apply(sec2_pt_estimated)# + np.array([from_x2, from_y2]) + self._template_side
                     logger.report_event("{}: match found: {} and {} (orig assumption: {})".format(os.getpid(), sec1_pt, sec2_pt, sec2_pt_estimated), log_level=logging.DEBUG)
@@ -196,6 +206,9 @@ class FeaturesBlockMatcherDispatcher(object):
         
 
         def match_sec2_to_sec1_mfov(self, sec2_pts):
+            """
+            sec2_pts will be in the original space (before scaling)
+            """
             valid_matches = [[], [], []]
             invalid_matches = [[], []]
             if len(sec2_pts) == 0:
@@ -214,7 +227,7 @@ class FeaturesBlockMatcherDispatcher(object):
                 # Fetch the template around sec2_pt
                 from_x2, from_y2 = sec2_pt - self._template_side
                 to_x2, to_y2 = sec2_pt + self._template_side
-                sec2_pt_features_kps, sec2_pt_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec2, self._sec2_tiles_rtree, self._sec2_cache_features, (from_x2, to_x2, from_y2, to_y2))
+                sec2_pt_features_kps, sec2_pt_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec2, self._sec2_tiles_rtree, self._sec2_cache_features, tuple(np.array([from_x2, to_x2, from_y2, to_y2]) * self._scaling))
             
                 if len(sec2_pt_features_kps) <= 1:
                     continue
@@ -222,19 +235,23 @@ class FeaturesBlockMatcherDispatcher(object):
                 # Fetch a large sub-image around sec1_pt_estimated (after transformation, using search_window_scaled_size)
                 from_x1, from_y1 = sec1_pt_estimated - self._search_window_side
                 to_x1, to_y1 = sec1_pt_estimated + self._search_window_side
-                sec1_pt_est_features_kps, sec1_pt_est_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec1, self._sec1_tiles_rtree, self._sec1_cache_features, (from_x1, to_x1, from_y1, to_y1))
+                sec1_pt_est_features_kps, sec1_pt_est_features_descs = FeaturesBlockMatcherDispatcher.FeaturesBlockMatcher._fetch_sec_features(self._sec1, self._sec1_tiles_rtree, self._sec1_cache_features, tuple(np.array([from_x1, to_x1, from_y1, to_y1]) * self._scaling))
 
                 if len(sec1_pt_est_features_kps) <= 1:
                     continue
 
-                # apply the inverse transformation on sec2 feature points locations
-                sec2_pt_features_kps = self._inverse_model.apply(sec2_pt_features_kps)
+                # apply the inverse transformation on sec2 feature points locations (after upscaling and then downscaling again)
+                sec2_pt_features_kps = self._inverse_model.apply(sec2_pt_features_kps / self._scaling) * self._scaling 
                 # Match the features
                 transform_model, filtered_matches = self._matcher.match_and_filter(sec2_pt_features_kps, sec2_pt_features_descs, sec1_pt_est_features_kps, sec1_pt_est_features_descs)
                 if transform_model is None:
                     invalid_matches[0].append(sec2_pt)
                     invalid_matches[1].append(1)
                 else:
+                    # the transform model need to be scaled
+                    transform_matrix = transform_model.get_matrix()
+                    transform_model.set(transform_matrix[:2, 2].T / self._scaling)
+
                     # Compute the location of the matched point on sec2
                     sec1_pt = transform_model.apply(sec1_pt_estimated)# + np.array([from_x1, from_y1]) + self._template_side
                     logger.report_event("{}: match found: {} and {} (orig assumption: {})".format(os.getpid(), sec2_pt, sec1_pt, sec1_pt_estimated), log_level=logging.DEBUG)
@@ -253,9 +270,10 @@ class FeaturesBlockMatcherDispatcher(object):
         self._kwargs = kwargs
         self._mesh_spacing = kwargs.get("mesh_spacing", 1500)
 
+        self._scaling = kwargs.get("scaling", 1.0)
         self._template_size = kwargs.get("template_size", 200)
         self._search_window_size = kwargs.get("search_window_size", 8 * self._template_size)
-        logger.report_event("Actual template size: {} and window search size: {}".format(self._template_size, self._search_window_size), log_level=logging.INFO)
+        logger.report_event("Actual template size: {} and window search size: {}".format(self._template_size * self._scaling, self._search_window_size * self._scaling), log_level=logging.INFO)
 
         self._detector_type = kwargs.get("detector_type", FeaturesDetector.Type.ORB.name)
         self._detector_kwargs = kwargs.get("detector_params", {})
@@ -343,7 +361,7 @@ class FeaturesBlockMatcherDispatcher(object):
 #         return new_model
 
     @staticmethod
-    def compute_features(tile, out_dict, out_dict_key, detector_type, detector_kwargs):
+    def compute_features(tile, out_dict, out_dict_key, detector_type, detector_kwargs, scaling):
         thread_local_store = ThreadLocalStorageLRU()
         if FeaturesBlockMatcherDispatcher.DETECTOR_KEY in thread_local_store.keys():
             detector = thread_local_store[FeaturesBlockMatcherDispatcher.DETECTOR_KEY]
@@ -362,6 +380,10 @@ class FeaturesBlockMatcherDispatcher(object):
         # Load the image
         img = tile.image
 
+        # scale the image
+        if scaling != 1.0:
+            img = cv2.resize(img, None, fx=scaling, fy=scaling, interpolation=cv2.INTER_AREA)
+
         # compute features
         kps, descs = detector.detect(img)
 
@@ -372,7 +394,8 @@ class FeaturesBlockMatcherDispatcher(object):
 
         # Apply tile transformations to each point
         for transform in tile.transforms:
-            kps_pts = transform.apply(kps_pts)
+            # Make sure wwe upscale and then downscale the kps
+            kps_pts = transform.apply(kps_pts / scaling) * scaling
 
         out_dict[out_dict_key] = [kps_pts, np.array(descs)]
 
@@ -413,12 +436,12 @@ class FeaturesBlockMatcherDispatcher(object):
         for sec1_t_idx, t in enumerate(sec1.tiles()):
             k = "{}_t{}".format(sec1.canonical_section_name, sec1_t_idx)
             if k not in sec1_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY]:
-                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec1_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs))
+                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec1_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs, self._scaling))
                 pool_results.append(res)
         for sec2_t_idx, t in enumerate(sec2.tiles()):
             k = "{}_t{}".format(sec2.canonical_section_name, sec2_t_idx)
             if k not in sec2_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY]:
-                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec2_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs))
+                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec2_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs, self._scaling))
                 pool_results.append(res)
 
         for res in pool_results:
@@ -766,4 +789,5 @@ class FeaturesBlockMatcherDispatcher(object):
 # 
 #         return np.array([np.vstack(sec1_to_sec2_results[0]), np.vstack(sec1_to_sec2_results[1])]), np.array([np.vstack(sec2_to_sec1_results[0]), np.vstack(sec2_to_sec1_results[1])])
 #         
+
 
