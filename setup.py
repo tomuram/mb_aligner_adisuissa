@@ -78,7 +78,6 @@ setup(
         "argparse>=1.4.0",
         "h5py>=2.5.0",
         "Cython>=0.23.3",
-        "opencv_contrib_python>=3.3.0",
         "ujson>=1.35",
         "scikit-learn>=0.19.2",
         "lru-dict>=1.1.6",
