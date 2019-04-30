@@ -53,6 +53,9 @@ class FeaturesBlockMatcherDispatcher(object):
 
             detector_type = kwargs.get("detector_type", FeaturesDetector.Type.ORB.name)
             #self._detector = FeaturesDetector(detector_type, **kwargs.get("detector_params", {}))
+            # scale the epsilon of the matcher
+            if self._scaling != 1.0 and "max_epsilon" in kwargs.get("matcher_params", {}):
+                kwargs["matcher_params"]["max_epsilon"] *= self._scaling
             self._matcher = FeaturesMatcher(FeaturesDetector.get_matcher_init_fn(detector_type), **kwargs.get("matcher_params", {}))
 
             self._template_side = self._template_size / 2
@@ -275,6 +278,8 @@ class FeaturesBlockMatcherDispatcher(object):
         self._search_window_size = kwargs.get("search_window_size", 8 * self._template_size)
         logger.report_event("Actual template size: {} and window search size: {}".format(self._template_size * self._scaling, self._search_window_size * self._scaling), log_level=logging.INFO)
 
+        self._use_clahe = kwargs.get("use_clahe", False)
+
         self._detector_type = kwargs.get("detector_type", FeaturesDetector.Type.ORB.name)
         self._detector_kwargs = kwargs.get("detector_params", {})
         self._matcher_kwargs = kwargs.get("matcher_params", {})
@@ -361,7 +366,7 @@ class FeaturesBlockMatcherDispatcher(object):
 #         return new_model
 
     @staticmethod
-    def compute_features(tile, out_dict, out_dict_key, detector_type, detector_kwargs, scaling):
+    def compute_features(tile, out_dict, out_dict_key, detector_type, detector_kwargs, scaling, use_clahe):
         thread_local_store = ThreadLocalStorageLRU()
         if FeaturesBlockMatcherDispatcher.DETECTOR_KEY in thread_local_store.keys():
             detector = thread_local_store[FeaturesBlockMatcherDispatcher.DETECTOR_KEY]
@@ -379,6 +384,11 @@ class FeaturesBlockMatcherDispatcher(object):
 
         # Load the image
         img = tile.image
+
+        if use_clahe:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            img = clahe.apply(img)
+            
 
         # scale the image
         if scaling != 1.0:
@@ -436,12 +446,12 @@ class FeaturesBlockMatcherDispatcher(object):
         for sec1_t_idx, t in enumerate(sec1.tiles()):
             k = "{}_t{}".format(sec1.canonical_section_name, sec1_t_idx)
             if k not in sec1_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY]:
-                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec1_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs, self._scaling))
+                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec1_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs, self._scaling, self._use_clahe))
                 pool_results.append(res)
         for sec2_t_idx, t in enumerate(sec2.tiles()):
             k = "{}_t{}".format(sec2.canonical_section_name, sec2_t_idx)
             if k not in sec2_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY]:
-                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec2_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs, self._scaling))
+                res = pool.apply_async(FeaturesBlockMatcherDispatcher.compute_features, (t, sec2_cache[FeaturesBlockMatcherDispatcher.BLOCK_FEATURES_KEY], k, self._detector_type, self._detector_kwargs, self._scaling, self._use_clahe))
                 pool_results.append(res)
 
         for res in pool_results:
