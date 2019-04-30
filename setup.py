@@ -54,10 +54,19 @@ EXTENSIONS = [
         Extension(
                   "rh_aligner.alignment.mesh_derivs_elastic",
                   #[str(os.path.join(b"rh_aligner", b"alignment", b"mesh_derivs_multibeam.pyx"))],
-                  [os.path.join("mh_aligner", "alignment", "optimizers", "mesh_derivs_elastic.pyx")],
+                  [os.path.join("mb_aligner", "alignment", "optimizers", "mesh_derivs_elastic.pyx")],
                   include_dirs=[np.get_include()],
                   extra_compile_args=['-fopenmp', '-O3', '--verbose'],
                   extra_link_args=['-fopenmp']
+                 ),
+        Extension(
+                  "mb_aligner.common.ransac_cython",
+                  [os.path.join("mb_aligner", "common", "ransac_cython.pyx")],
+                  language="c++",
+                  include_dirs=[np.get_include()],
+                  #define_macros=[('CYTHON_TRACE', '1'), ('CYTHON_TRACE_NOGIL', '1')],
+                  extra_compile_args=['-O3', '--verbose', '-mavx2', '-fopt-info-vec-all']
+                  #extra_objects=libraries_list
                  )
 ]
 
