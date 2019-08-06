@@ -68,13 +68,15 @@ class WrinkleDetector(object):
             approx = cv2.approxPolyDP(contours[c_idx], epsilon, True)
             print("{}: {}".format(c_idx, approx))
             res_contours.append(approx)
+            # res_contours.append(contours[c_idx])
         return res_contours
 
     def visualize_contours(self, img, contours, out_fname):
-        out_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR);
+        out_img = cv2.cvtColor(255-img, cv2.COLOR_GRAY2BGR);
         np.random.seed(7)
         for c_idx in range(len(contours)):
-            color = (int(np.random.random_integers(0, 256)), int(np.random.random_integers(0, 256)), int(np.random.random_integers(0, 256)))
+            #color = (int(np.random.random_integers(0, 256)), int(np.random.random_integers(0, 256)), int(np.random.random_integers(0, 256)))
+            color = (0, 0, 255)
             #cv2.drawContours(out_img, contours, c_idx, color, 3)
             cv2.drawContours(out_img, contours, c_idx, color, 3)
 #             rect = cv2.minAreaRect(contours[c_idx])
@@ -94,13 +96,13 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         img_fname = sys.argv[1]
     else:
-        img_fname = '/n/lichtmangpfs01/Instrument_drop/U19_Zebrafish/EM/w019/w019_h02_20190325_14-10-55/001_S15R1/000021/001_000021_028_2019-03-25T1414044834028.bmp'
-        #img_fname = '/n/lichtmangpfs01/Instrument_drop/U19_Zebrafish/EM/w019/w019_h02_20190326_00-43-52/002_S16R1/000021/002_000021_040_2019-03-26T0046443382649.bmp'
+        #img_fname = '/n/lichtmangpfs01/Instrument_drop/U19_Zebrafish/EM/w019/w019_h02_20190325_14-10-55/001_S15R1/000021/001_000021_028_2019-03-25T1414044834028.bmp'
+        img_fname = '/n/lichtmangpfs01/Instrument_drop/U19_Zebrafish/EM/w019/w019_h02_20190326_00-43-52/002_S16R1/000021/002_000021_040_2019-03-26T0046443382649.bmp'
 
     img = cv2.imread(img_fname, 0)
     detector = WrinkleDetector(kernel_size=3, threshold=200, min_line_length=100)
     contours = detector.detect(img)
-    detector.visualize_contours(img, contours, "temp_wrinkle_detector4.png")
+    detector.visualize_contours(img, contours, "temp_wrinkle_detector4_pre.png")
 
 
 

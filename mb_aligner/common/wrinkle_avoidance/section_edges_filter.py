@@ -3,15 +3,14 @@ import numpy as np
 from scipy.spatial import Delaunay
 from mb_aligner.common import utils
 from mb_aligner.common.wrinkle_avoidance.wrinkle_detector import WrinkleDetector
-from mb_aligner.common.wrinkle_avoidance.mesh_edges_filter import MeshEdgesFilter
+from mb_aligner.common.wrinkle_avoidance.edges_filter import EdgesFilter
 
-class SectionMeshEdgesFilter(object):
+class SectionEdgesFilter(object):
 
-    def __init__(self, orig_triangulation, section, **kwargs):
+    def __init__(self, section, **kwargs):
 
-        self._orig_triangulation = orig_triangulation
 
-        self._mesh_edges_filter = MeshEdgesFilter(self._orig_triangulation)
+        self._edges_filter = EdgesFilter()
         self._section = section
 
         wrinkle_detector_params = kwargs.get("wrinkle_detector_params", {})        
@@ -19,6 +18,7 @@ class SectionMeshEdgesFilter(object):
         self._wrinkle_detector = WrinkleDetector(kernel_size=3, threshold=200, min_line_length=100)
 
         self._detect_wrinkles()
+
 
     def _detect_wrinkles(self):
         # for each image of the section detect the wrinkles
@@ -34,7 +34,7 @@ class SectionMeshEdgesFilter(object):
         for image_contours in per_image_contours:
             all_image_contours.extend(image_contours)
 
-        self._mesh_edges_filter.set_contours(all_image_contours)
+        self._edges_filter.set_contours(all_image_contours)
 
 
     @staticmethod
@@ -52,15 +52,15 @@ class SectionMeshEdgesFilter(object):
             out_contours[cnt_idx] = cnt_pts_transformed
         return out_contours
 
-    def filter_mesh_edges_and_simplices(self, section):
+    def filter_mesh_edges_and_simplices(self, section_mesh_tri):
         
-        filtered_edges_indices, filtered_simplices, orig_simplices_mask = mesh_edges_filter.filter_mesh_by_wrinkles()
+        filtered_edges_indices, filtered_simplices, orig_simplices_mask = edges_filter.filter_mesh_by_wrinkles(section_mesh_tri)
 
         #visualize_filtered_mesh(mesh_tri, filtered_edges_indices, filtered_simplices, img)
         return filtered_edges_indices, filtered_simplices, orig_simplices_mask
 
     def filter_edges(self, edges):
-        filtered_edges_mask = mesh_edges_filter.filter_edges_by_wrinkles(edges)
+        filtered_edges_mask = edges_filter.filter_edges_by_wrinkles(edges)
         return ~filtered_edges_mask
 
 

@@ -7,18 +7,23 @@ from shapely.geometry import Point, LineString, MultiLineString
 
 class MeshEdgesFilter(object):
 
-    def __init__(self, mesh_tri):
+    def __init__(self, mesh_tri, contours=None):
         self._mesh_tri = mesh_tri
+        self._points = self._mesh_tri.points
+        self._simplices = self._mesh_tri.simplices.astype(np.uint32)
 
-    def filter_by_wrinkles(self, contours):
-        points = self._mesh_tri.points
-        simplices = self._mesh_tri.simplices.astype(np.uint32)
 
+        if contours is not None:
+            self.set_contours(contours)
+
+    def set_contours(self, contours):
         # add all contours to a line collection
-        all_contours = MultiLineString()
         contours = [[p[0] for p in cnt] for cnt in contours]
-        wrinkle_lines = MultiLineString(contours)
+        self._wrinkle_lines = MultiLineString(contours)
 
+
+
+    def filter_mesh_by_wrinkles(self):
         # find unique edges - iterate over all simplices triangle edges
         def _filter_specifc_simplices_edge(cur_simplex_edge_indices, simplices_mask, points, wrinkle_lines):
             cur_simplex_edge_mask = np.zeros((len(cur_simplex_edge_indices), ), dtype=np.bool)
@@ -32,11 +37,11 @@ class MeshEdgesFilter(object):
             return cur_simplex_edge_mask
                 
         relevant_edges_indices = []
-        simplices_mask = np.zeros((len(simplices), ), dtype=np.bool)
+        simplices_mask = np.zeros((len(self._simplices), ), dtype=np.bool)
         edges_indices = np.vstack((
-                simplices[:, :2][~_filter_specifc_simplices_edge(simplices[:, :2], simplices_mask, points, wrinkle_lines)],
-                simplices[:, 1:][~_filter_specifc_simplices_edge(simplices[:, 1:], simplices_mask, points, wrinkle_lines)],
-                simplices[:, [0, 2]][~_filter_specifc_simplices_edge(simplices[:, [0, 2]], simplices_mask, points, wrinkle_lines)]
+                self._simplices[:, :2][~_filter_specifc_simplices_edge(self._simplices[:, :2], simplices_mask, self._points, self._wrinkle_lines)],
+                self._simplices[:, 1:][~_filter_specifc_simplices_edge(self._simplices[:, 1:], simplices_mask, self._points, self._wrinkle_lines)],
+                self._simplices[:, [0, 2]][~_filter_specifc_simplices_edge(self._simplices[:, [0, 2]], simplices_mask, self._points, self._wrinkle_lines)]
             ))
         edges_indices = np.vstack({tuple(sorted(tuple(row))) for row in edges_indices}).astype(np.uint32)
         
@@ -63,7 +68,24 @@ class MeshEdgesFilter(object):
 #                 print("Found an intersection of edge_idx: {}, edge_pts: {}".format(edge_idx, edge_pts))
 #                 edges_mask[edge_idx] = True
 
-        return edges_indices, simplices[~simplices_mask]
+        return edges_indices, self._simplices[~simplices_mask], ~simplices_mask
+
+    def filter_edges_by_wrinkles(self, edges_pts):
+        """
+        Returns a mask where indices corresponding to edges that cross wrinkles are True
+        """
+
+        edges_mask = np.zeros((len(edges_pts), ), dtype=np.bool)
+
+        # iterate over all edges, and for each edge find if it crosses the wrinkle_lines
+        for edge_idx, edge_pts in enumerate(edge_pts):
+            edge_line = LineString(edge_pts)
+            if self._wrinkle_lines.intersection(edge_line):
+                print("Found an intersection of edge_idx: {}, edge_pts: {}".format(edge_idx, edge_pts))
+                edges_mask[edge_idx] = True
+
+        return edges_mask
+ 
 
 #     def _initialize(self):
 #         self._kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (self._kernel_size, self._kernel_size));
