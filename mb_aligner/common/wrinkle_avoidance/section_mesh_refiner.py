@@ -6,7 +6,7 @@ from mb_aligner.common.wrinkle_avoidance.wrinkle_detector import WrinkleDetector
 from mb_aligner.common.wrinkle_avoidance.edges_filter import EdgesFilter
 from collections import Counter
 
-DEBUG_NO_TRANSFOM = True
+DEBUG_NO_TRANSFOM = False
 
 class SectionMeshRefiner(object):
 
