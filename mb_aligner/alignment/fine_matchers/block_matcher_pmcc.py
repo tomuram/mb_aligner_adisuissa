@@ -19,6 +19,7 @@ from rh_renderer.tilespec_affine_renderer import TilespecAffineRenderer
 import threading
 from scipy.spatial import cKDTree as KDTree
 from collections import defaultdict
+from rh_renderer.multiple_tiles_affine_renderer import BlendType
 
 
 
@@ -63,12 +64,12 @@ class BlockMatcherPMCCDispatcher(object):
                                         [ 0., self._scaling, 0. ]
                                     ])
             # For section1 there will be a single renderer with transformation and scaling
-            self._sec1_scaled_renderer = TilespecAffineRenderer(self._sec1.tilespec)
+            self._sec1_scaled_renderer = TilespecAffineRenderer(self._sec1.tilespec, blend_type=BlendType.AVERAGING)
             self._sec1_scaled_renderer.add_transformation(self._sec1_to_sec2_transform.get_matrix())
             self._sec1_scaled_renderer.add_transformation(self._scale_transformation)
 
             # for section2 there will only be a single renderer (no need to transform back to sec1)
-            self._sec2_scaled_renderer = TilespecAffineRenderer(self._sec2.tilespec)
+            self._sec2_scaled_renderer = TilespecAffineRenderer(self._sec2.tilespec, blend_type=BlendType.AVERAGING)
             self._sec2_scaled_renderer.add_transformation(self._scale_transformation)
 
 
@@ -270,7 +271,7 @@ class BlockMatcherPMCCDispatcher(object):
 #         new_model = models.AffineModel(np.linalg.inv(mat))
 #         return new_model
 
-    def match_layers_fine_matching(self, sec1, sec2, sec1_cache, sec2_cache, sec1_to_sec2_mfovs_transforms, pool):
+    def match_layers_fine_matching(self, sec1, sec2, sec1_cache, sec2_cache, sec1_to_sec2_mfovs_transforms, pool, sec1_relevant_mfovs=None):
 
         starttime = time.time()
         logger.report_event("Block-Matching+PMCC layers: {} with {} (bidirectional)".format(sec1.canonical_section_name, sec2.canonical_section_name), log_level=logging.INFO)
@@ -346,7 +347,8 @@ class BlockMatcherPMCCDispatcher(object):
         for sec1_pt, sec1_pt_mfov_tile_idx in zip(sec1_mesh_pts, sec1_mesh_pts_mfov_tile_idxs):
             sec1_tile = sec1.get_mfov(sec1_pt_mfov_tile_idx[0]).get_tile(sec1_pt_mfov_tile_idx[1])
             if BlockMatcherPMCCDispatcher._is_point_in_img(sec1_tile.bbox, sec1_pt):
-                sec1_per_region_mesh_pts[tuple(sec1_pt_mfov_tile_idx)].append(sec1_pt)
+                if sec1_relevant_mfovs is None or sec1_pt_mfov_tile_idx[0] in sec1_relevant_mfovs:
+                    sec1_per_region_mesh_pts[tuple(sec1_pt_mfov_tile_idx)].append(sec1_pt)
 
         # Group the mesh pts of sec2 by the mfov on sec1 which they should end up on (mfov1 that after applying its transformation is closest to that point)
         # Transform sec1 tiles centers to their estimated location on sec2
@@ -366,7 +368,8 @@ class BlockMatcherPMCCDispatcher(object):
         for sec2_pt, (sec2_pt_mfov_idx, sec2_pt_tile_idx), sec1_tile_center_idx in zip(sec2_mesh_pts, sec2_mesh_pts_mfov_tile_idxs, sec2_mesh_pts_sec1_closest_tile_idxs):
             sec2_tile = sec2.get_mfov(sec2_pt_mfov_idx).get_tile(sec2_pt_tile_idx)
             if BlockMatcherPMCCDispatcher._is_point_in_img(sec2_tile.bbox, sec2_pt):
-                sec2_per_region1_mesh_pts[tuple(sec1_tiles_mfov_tile_idxs[sec1_tile_center_idx])].append(sec2_pt)
+                if sec1_relevant_mfovs is None or sec1_tiles_mfov_tile_idxs[sec1_tile_center_idx][0] in sec1_relevant_mfovs:
+                    sec2_per_region1_mesh_pts[tuple(sec1_tiles_mfov_tile_idxs[sec1_tile_center_idx])].append(sec2_pt)
 
 
         # Activate the actual matching        
