@@ -1,11 +1,17 @@
-numpy==1.13.0
-scipy==0.16.0
-rh_renderer==0.0.2
+#installed Cython with pip
+#Cython==0.23.3
+#installed numpy with conda
+#numpy==1.13.0
+#installed numpy with conda
+#scipy==0.16.0
+#rh_renderer==0.0.2
+-e git+https://github.com/Rhoana/rh_renderer.git#egg=rh_renderer
 argparse==1.4.0
-h5py==2.5.0
-Cython==0.23.3
-rh_config==1.0.0
-rh_logger==2.0.0
+#h5py==2.5.0
+#rh_config==1.0.0
+git+https://github.com/Rhoana/rh_config.git@1.0.0#egg=rh_config
+#rh_logger==2.0.0
+git+https://github.com/Rhoana/rh_logger.git@2.0.0#egg=rh_logger
 ujson==1.35
 scikit-learn==0.19.2
 lru-dict==1.1.6
