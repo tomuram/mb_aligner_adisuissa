@@ -1,7 +1,10 @@
 import numpy as np
 import copy
 import rh_renderer.models as models
-from scipy.misc import comb
+try:
+    from scipy.misc import comb
+except:
+    from scipy.special import comb
 from rh_logger.api import logger
 import logging
 import math
